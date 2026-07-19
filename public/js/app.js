@@ -10,6 +10,7 @@ let state = {
   lastActivityTime: Date.now(),
   userActive: true,
   hashChain: [],
+  isDeleting: false,
 };
 
 const API_BASE = '/api';
@@ -237,7 +238,12 @@ async function apiCall(endpoint, options = {}) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || response.statusText);
+    let message = errorText || response.statusText;
+    try {
+      const parsed = JSON.parse(errorText);
+      message = parsed.error || parsed.detail || message;
+    } catch (_) { /* keep raw text */ }
+    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
   }
 
   return await response.json();
@@ -386,14 +392,8 @@ function selectLesson(lesson, allLessons) {
 
   document.getElementById('lesson-text').innerHTML = formatMarkdown(payload.text_content || '# Keine Theorie vorhanden');
 
-  // Set Video Player
-  const player = document.getElementById('avatar-video-player');
-  if (lesson.videoUrl) {
-    player.src = lesson.videoUrl;
-    player.load();
-  } else {
-    player.src = '';
-  }
+  // Media player: unique per-lesson audio/video + slide stage for audio-only
+  setupLessonMediaPlayer(lesson);
 
   // Load Quiz
   const quizContainer = document.getElementById('lesson-quiz');
@@ -617,6 +617,15 @@ async function loadAdminDashboard() {
     }
 
     const courses = await apiCall('/courses');
+
+    // Re-check after await: a confirm/delete may have started while we were fetching
+    if (state.isDeleting) {
+      return;
+    }
+    const modalAfterFetch = document.getElementById('wizard-modal');
+    if (modalAfterFetch && !modalAfterFetch.classList.contains('hidden')) {
+      return;
+    }
     
     tableBody.innerHTML = '';
     const sessionSelector = document.getElementById('verify-session-select');
@@ -663,6 +672,7 @@ async function loadAdminDashboard() {
         } else if (course.status === 'pending_approval') {
           actionBtn = `
             <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary btn-sm" onclick="openWizard('${course.id}', '${course.topic.replace(/'/g, "\\'")}', '${course.duration}')"><i data-lucide="edit-3"></i> Wizard</button>
               <button class="btn btn-primary btn-sm" onclick="handleApproveCourse('${course.id}')"><i data-lucide="check-square"></i> Freigeben</button>
               <button class="btn btn-sm" style="background:#dc262620; color:#ef4444; border:1px solid #dc262640;" onclick="handleDeleteCourse('${course.id}')"><i data-lucide="trash-2"></i> Löschen</button>
             </div>
@@ -675,6 +685,7 @@ async function loadAdminDashboard() {
           actionBtn = `
             <div style="display: flex; gap: 8px; align-items: center;">
               ${course.status === 'active' ? '<span class="badge student">Freigegeben</span>' : ''}
+              <button class="btn btn-secondary btn-sm" onclick="openWizard('${course.id}', '${course.topic.replace(/'/g, "\\'")}', '${course.duration}')"><i data-lucide="edit-3"></i> Inhalte nachziehen</button>
               <button class="btn btn-sm" style="background:#dc262620; color:#ef4444; border:1px solid #dc262640;" onclick="handleDeleteCourse('${course.id}')"><i data-lucide="trash-2"></i> Löschen</button>
             </div>
           `;
@@ -780,19 +791,26 @@ async function handleStopCourse(courseId) {
 }
 
 async function handleDeleteCourse(courseId) {
+  // Block dashboard polls before confirm so an in-flight table refresh
+  // cannot destroy the button and auto-dismiss the native dialog.
   state.isDeleting = true;
-  try {
-    const ok = confirm('Möchtest du diesen Kurs wirklich unwiderruflich löschen? Alle Module, Lektionen und Lernzeiten werden gelöscht.');
-    if (!ok) return;
+  const ok = confirm('Möchtest du diesen Kurs wirklich unwiderruflich löschen? Alle Module, Lektionen und Lernzeiten werden gelöscht.');
+  if (!ok) {
+    state.isDeleting = false;
+    return;
+  }
 
+  try {
     await apiCall(`/courses/${courseId}`, { method: 'DELETE' });
     alert('Kurs erfolgreich gelöscht.');
-    loadAdminDashboard();
   } catch (err) {
     alert('Fehler beim Löschen des Kurses: ' + err.message);
   } finally {
+    // Clear flag before refresh — otherwise loadAdminDashboard() bails out
+    // early and the deleted row stays visible until the next poll.
     state.isDeleting = false;
   }
+  loadAdminDashboard();
 }
 
 async function handleVerifyChain() {
@@ -1041,7 +1059,7 @@ async function openWizard(courseId, topic = '', duration = '2_weeks') {
   wizardState.courseId = courseId;
   wizardState.currentStep = 1;
   wizardState.topic = topic;
-  wizardState.duration = duration;
+  wizardState.duration = duration || '2_weeks';
   wizardState.curriculumData = null;
   wizardState.activeLessonId = null;
 
@@ -1056,14 +1074,26 @@ async function openWizard(courseId, topic = '', duration = '2_weeks') {
   try {
     const courseDetails = await apiCall(`/courses/${courseId}`);
     wizardState.curriculumData = courseDetails;
-    wizardState.topic = courseDetails.course.topic;
-    wizardState.duration = courseDetails.course.duration;
+    wizardState.topic = courseDetails.course.topic || topic;
+    // courses table has no duration column — keep the value from openWizard()/form
+    const savedDuration = courseDetails.course?.progress?.duration;
+    wizardState.duration = savedDuration || duration || '2_weeks';
 
     // Update prompt with the fetched topic
-    document.getElementById('wz-prompt-step1').value = `Erstelle einen didaktischen Lehrplan zum Thema "${courseDetails.course.topic}".`;
+    document.getElementById('wz-prompt-step1').value = `Erstelle einen didaktischen Lehrplan zum Thema "${wizardState.topic}".`;
 
-    if (courseDetails.course.status === 'content_draft') {
+    const hasModules = courseDetails.modules && courseDetails.modules.length > 0;
+    const hasLessonText = (courseDetails.lessons || []).some(
+      (l) => l.contentPayload && l.contentPayload.text_content && l.contentPayload.text_content.trim()
+    );
+
+    if (!hasModules) {
+      goToWizardStep(1);
+      wizardRegenerateCurriculum();
+    } else if (!hasLessonText || courseDetails.course.status === 'content_draft') {
+      // Curriculum exists but theory/scripts missing (often after skipping Step 2)
       goToWizardStep(2);
+      syncWizardStep2Ui(courseDetails);
     } else {
       goToWizardStep(1);
     }
@@ -1072,6 +1102,99 @@ async function openWizard(courseId, topic = '', duration = '2_weeks') {
     goToWizardStep(1);
     wizardRegenerateCurriculum();
   }
+}
+
+function syncWizardStep2Ui(details) {
+  const btn = document.getElementById('wz-btn-regen-step2');
+  const progressBox = document.getElementById('wz-step2-progress-box');
+  if (!btn || !progressBox) return;
+
+  const status = details?.course?.status;
+  const prog = details?.course?.progress || {};
+  const done = status === 'content_draft' || status === 'pending_approval' || status === 'active'
+    || prog.percent >= 80
+    || (prog.step && /generiert/i.test(prog.step));
+
+  if (done) {
+    if (wizardState.pollInterval) {
+      clearInterval(wizardState.pollInterval);
+      wizardState.pollInterval = null;
+    }
+    progressBox.classList.remove('hidden');
+    document.getElementById('wz-progress-step-text').textContent = prog.step || 'Lektionsinhalte generiert.';
+    document.getElementById('wz-progress-step-percent').textContent = '100%';
+    document.getElementById('wz-progress-step-bar').style.width = '100%';
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="check-circle-2"></i> Fertig – ggf. erneut generieren';
+    lucide.createIcons();
+    wizardState.curriculumData = details;
+    renderStep2Content();
+  } else if (status === 'generating') {
+    // Resume polling if generation is still running in the background
+    progressBox.classList.remove('hidden');
+    document.getElementById('wz-progress-step-text').textContent = prog.step || 'Generiere Lektionsinhalte...';
+    document.getElementById('wz-progress-step-percent').textContent = `${prog.percent || 0}%`;
+    document.getElementById('wz-progress-step-bar').style.width = `${prog.percent || 0}%`;
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="refresh-cw" class="spin"></i> Generiere Inhalte...';
+    lucide.createIcons();
+    startStep2ProgressPolling();
+  } else {
+    progressBox.classList.add('hidden');
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="refresh-cw"></i> Lektionsinhalte (re)generieren';
+    lucide.createIcons();
+  }
+}
+
+function startStep2ProgressPolling() {
+  const btn = document.getElementById('wz-btn-regen-step2');
+  const progressBox = document.getElementById('wz-step2-progress-box');
+  if (wizardState.pollInterval) clearInterval(wizardState.pollInterval);
+
+  wizardState.pollInterval = setInterval(async () => {
+    try {
+      const details = await apiCall(`/courses/${wizardState.courseId}`);
+      const prog = details.course.progress || { percent: 25, step: 'Generiere Lektionsinhalte...' };
+
+      document.getElementById('wz-progress-step-text').textContent = prog.step;
+      document.getElementById('wz-progress-step-percent').textContent = `${prog.percent}%`;
+      document.getElementById('wz-progress-step-bar').style.width = `${prog.percent}%`;
+
+      const done = details.course.status === 'content_draft'
+        || details.course.status === 'pending_approval'
+        || details.course.status === 'active'
+        || prog.percent >= 80
+        || (prog.step && /generiert/i.test(prog.step));
+
+      if (done) {
+        clearInterval(wizardState.pollInterval);
+        wizardState.pollInterval = null;
+        syncWizardStep2Ui(details);
+        return;
+      }
+
+      if (details.course.status === 'failed') {
+        clearInterval(wizardState.pollInterval);
+        wizardState.pollInterval = null;
+        alert('Die Generierung ist fehlgeschlagen: ' + prog.step);
+        progressBox.classList.add('hidden');
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="refresh-cw"></i> Lektionsinhalte (re)generieren';
+        lucide.createIcons();
+      }
+    } catch (pollErr) {
+      console.error('Error polling content generation progress:', pollErr);
+      // Stop polling on auth/session errors so the UI doesn't stay stuck forever
+      if (String(pollErr.message || '').includes('Sitzung abgelaufen')) {
+        clearInterval(wizardState.pollInterval);
+        wizardState.pollInterval = null;
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="refresh-cw"></i> Lektionsinhalte (re)generieren';
+        lucide.createIcons();
+      }
+    }
+  }, 2000);
 }
 
 function closeWizard() {
@@ -1145,9 +1268,21 @@ function wizardPrevStep() {
 // STEP 1: Curriculum Generation & Interactive Editing
 async function wizardRegenerateCurriculum() {
   const btn = document.getElementById('wz-btn-regen-step1');
+  const editor = document.getElementById('wz-curriculum-editor');
   const prompt = document.getElementById('wz-prompt-step1').value;
+
+  if (btn.dataset.busy === '1') return;
+  btn.dataset.busy = '1';
   btn.disabled = true;
-  btn.innerHTML = '<i data-lucide="refresh-cw" class="spin"></i> Generiere Lehrplan...';
+  btn.innerHTML = '<i data-lucide="refresh-cw" class="spin"></i> Generiere Lehrplan…';
+  if (editor) {
+    editor.innerHTML = `
+      <div style="text-align:center; padding:28px 16px; color:var(--text-secondary);">
+        <i data-lucide="loader-2" class="spin" style="width:28px;height:28px;margin-bottom:12px;"></i>
+        <p style="margin:0 0 6px; color:#fff; font-weight:600;">Lehrplan wird mit der KI generiert…</p>
+        <p style="margin:0; font-size:0.85rem;">Das kann 30–90 Sekunden dauern. Bitte warten.</p>
+      </div>`;
+  }
   lucide.createIcons();
 
   try {
@@ -1156,7 +1291,7 @@ async function wizardRegenerateCurriculum() {
       body: JSON.stringify({
         courseId: wizardState.courseId,
         topic: wizardState.topic,
-        duration: wizardState.duration,
+        duration: wizardState.duration || '2_weeks',
         customPrompt: prompt
       })
     });
@@ -1166,8 +1301,12 @@ async function wizardRegenerateCurriculum() {
     wizardState.curriculumData = courseDetails;
     renderStep1Curriculum();
   } catch (err) {
+    if (editor) {
+      editor.innerHTML = `<p style="color:#ef4444; text-align:center; padding:20px;">Fehler: ${err.message}</p>`;
+    }
     alert('Fehler beim Generieren des Lehrplans: ' + err.message);
   } finally {
+    btn.dataset.busy = '0';
     btn.disabled = false;
     btn.innerHTML = '<i data-lucide="refresh-cw"></i> Curriculum regenerieren';
     lucide.createIcons();
@@ -1326,6 +1465,9 @@ async function wizardGenerateLessonsContent() {
   // Show progress box
   const progressBox = document.getElementById('wz-step2-progress-box');
   progressBox.classList.remove('hidden');
+  document.getElementById('wz-progress-step-text').textContent = 'Starte Inhaltsgenerierung...';
+  document.getElementById('wz-progress-step-percent').textContent = '0%';
+  document.getElementById('wz-progress-step-bar').style.width = '0%';
 
   try {
     await apiCall('/courses/wizard/step2-content', {
@@ -1336,47 +1478,10 @@ async function wizardGenerateLessonsContent() {
       })
     });
 
-    // Start polling progress
-    if (wizardState.pollInterval) clearInterval(wizardState.pollInterval);
-    
-    wizardState.pollInterval = setInterval(async () => {
-      try {
-        const details = await apiCall(`/courses/${wizardState.courseId}`);
-        const prog = details.course.progress || { percent: 25, step: 'Generiere Lektionsinhalte...' };
-        
-        document.getElementById('wz-progress-step-text').textContent = prog.step;
-        document.getElementById('wz-progress-step-percent').textContent = `${prog.percent}%`;
-        document.getElementById('wz-progress-step-bar').style.width = `${prog.percent}%`;
-
-        if (details.course.status === 'content_draft') {
-          clearInterval(wizardState.pollInterval);
-          wizardState.pollInterval = null;
-          progressBox.classList.add('hidden');
-          
-          // Fetch final content
-          wizardState.curriculumData = details;
-          renderStep2Content();
-          
-          btn.disabled = false;
-          btn.innerHTML = '<i data-lucide="refresh-cw"></i> Lektionsinhalte (re)generieren';
-          lucide.createIcons();
-        } else if (details.course.status === 'failed') {
-          clearInterval(wizardState.pollInterval);
-          wizardState.pollInterval = null;
-          alert('Die Generierung ist fehlgeschlagen: ' + prog.step);
-          progressBox.classList.add('hidden');
-          
-          btn.disabled = false;
-          btn.innerHTML = '<i data-lucide="refresh-cw"></i> Lektionsinhalte (re)generieren';
-          lucide.createIcons();
-        }
-      } catch (pollErr) {
-        console.error('Error polling content generation progress:', pollErr);
-      }
-    }, 2000);
-
+    startStep2ProgressPolling();
   } catch (err) {
     alert('Fehler beim Starten der Inhaltsgenerierung: ' + err.message);
+    progressBox.classList.add('hidden');
     btn.disabled = false;
     btn.innerHTML = '<i data-lucide="refresh-cw"></i> Lektionsinhalte (re)generieren';
     lucide.createIcons();
@@ -1574,10 +1679,94 @@ let classroomSlideState = {
   currentIndex: 0
 };
 
+function isAudioOnlyUrl(url) {
+  if (!url) return true;
+  return /\.mp3($|\?)/i.test(url) || url.startsWith('/audio/');
+}
+
+function renderSlideStage() {
+  const titleEl = document.getElementById('slide-stage-title');
+  const bulletsEl = document.getElementById('slide-stage-bullets');
+  const counterEl = document.getElementById('slide-stage-counter');
+  if (!titleEl || !bulletsEl || !counterEl) return;
+
+  const slides = classroomSlideState.slides || [];
+  if (slides.length === 0) {
+    titleEl.textContent = state.activeLesson?.title || 'Lektion';
+    bulletsEl.innerHTML = '<li>Keine Folien für diese Lektion vorhanden.</li>';
+    counterEl.textContent = 'Keine Folien';
+    return;
+  }
+
+  const idx = Math.min(classroomSlideState.currentIndex, slides.length - 1);
+  const slide = slides[idx];
+  titleEl.textContent = slide.title || `Folie ${idx + 1}`;
+  bulletsEl.innerHTML = '';
+  (slide.bullets || []).forEach((b) => {
+    const li = document.createElement('li');
+    li.textContent = b;
+    bulletsEl.appendChild(li);
+  });
+  counterEl.textContent = `Folie ${idx + 1} von ${slides.length}`;
+}
+
+function syncSlidesToMediaTime(player) {
+  const slides = classroomSlideState.slides || [];
+  if (!player || slides.length === 0 || !player.duration || !isFinite(player.duration)) return;
+  const segment = player.duration / slides.length;
+  const nextIndex = Math.min(slides.length - 1, Math.floor(player.currentTime / segment));
+  if (nextIndex !== classroomSlideState.currentIndex) {
+    classroomSlideState.currentIndex = nextIndex;
+    renderActiveSlide();
+    renderSlideStage();
+  }
+}
+
+function setupLessonMediaPlayer(lesson) {
+  const player = document.getElementById('avatar-video-player');
+  const container = document.getElementById('lesson-media-container');
+  const mediaLabel = document.getElementById('slide-stage-media-label');
+  if (!player || !container) return;
+
+  player.pause();
+  player.removeAttribute('poster');
+
+  const url = lesson.videoUrl || '';
+  const audioOnly = isAudioOnlyUrl(url);
+  container.classList.toggle('audio-mode', audioOnly);
+  container.classList.toggle('video-mode', !audioOnly && !!url);
+
+  if (mediaLabel) {
+    mediaLabel.textContent = audioOnly ? 'ElevenLabs Audio + Folien' : 'Avatar-Video';
+  }
+
+  player.removeAttribute('src');
+  while (player.firstChild) player.removeChild(player.firstChild);
+
+  if (url) {
+    const source = document.createElement('source');
+    source.src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    source.type = audioOnly ? 'audio/mpeg' : 'video/mp4';
+    player.appendChild(source);
+    player.load();
+  }
+
+  player.ontimeupdate = () => {
+    if (audioOnly) syncSlidesToMediaTime(player);
+  };
+  player.onloadedmetadata = () => {
+    classroomSlideState.currentIndex = 0;
+    renderSlideStage();
+  };
+
+  renderSlideStage();
+}
+
 function classroomPrevSlide() {
   if (classroomSlideState.currentIndex > 0) {
     classroomSlideState.currentIndex--;
     renderActiveSlide();
+    renderSlideStage();
   }
 }
 
@@ -1585,6 +1774,7 @@ function classroomNextSlide() {
   if (classroomSlideState.currentIndex < classroomSlideState.slides.length - 1) {
     classroomSlideState.currentIndex++;
     renderActiveSlide();
+    renderSlideStage();
   }
 }
 
@@ -1611,6 +1801,7 @@ function renderActiveSlide() {
   });
 
   counterEl.textContent = `Folie ${classroomSlideState.currentIndex + 1} von ${classroomSlideState.slides.length}`;
+  renderSlideStage();
 }
 
 // Slides initialized via classroomSlideState in selectLesson function

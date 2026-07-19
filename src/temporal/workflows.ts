@@ -82,9 +82,11 @@ export async function CourseGenerationWorkflow(input: WorkflowInput): Promise<st
       await updateCourseProgress(courseId, 95, 'Schließe Generierung ab...');
       await setCourseStatus(courseId, 'pending_approval', videoUrlResult);
     } else {
-      // 5. Success: Transition course to pending_approval immediately using generated audio URL
+      // 5. Success: Transition course to pending_approval.
+      // Per-lesson audio URLs were already saved in startVideoRendering — do not pass mediaUrl
+      // here (that would overwrite every lesson with the first lesson's audio).
       await updateCourseProgress(courseId, 95, 'Schließe Generierung ab...');
-      await setCourseStatus(courseId, 'pending_approval', mediaUrl || '');
+      await setCourseStatus(courseId, 'pending_approval');
     }
     
     // Complete progress

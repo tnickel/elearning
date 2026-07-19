@@ -1,6 +1,6 @@
-import { db, withTenant } from '../db';
+import { db, withTenant, inList } from '../db';
 import { courses, modules, lessons, embeddings } from '../db/schema';
-import { eq, sql, inArray } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
@@ -92,7 +92,7 @@ export async function generateLessonsAndEmbeddings(courseId: string, topic: stri
     throw new Error(`No modules found for course ${courseId}`);
   }
 
-  const allLessons = await db.select().from(lessons).where(inArray(lessons.moduleId, moduleIds));
+  const allLessons = await db.select().from(lessons).where(inList(lessons.moduleId, moduleIds));
 
   const total = allLessons.length;
   for (let i = 0; i < total; i++) {
@@ -155,7 +155,7 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
   }
 
   // Fetch all lessons of the course
-  const allLessons = await db.select().from(lessons).where(inArray(lessons.moduleId, moduleIds));
+  const allLessons = await db.select().from(lessons).where(inList(lessons.moduleId, moduleIds));
 
   if (allLessons.length === 0) {
     throw new Error(`No lessons found for course ${courseId}`);
@@ -301,14 +301,16 @@ export async function setCourseStatus(courseId: string, status: 'generating' | '
     .set({ status })
     .where(eq(courses.id, courseId));
 
-  if (videoUrl) {
-    // For simplicity, assign the videoUrl to all lessons in the course (or the first lesson)
+  // Only apply a shared videoUrl for true avatar-video webhooks.
+  // Audio-only TTS already writes a unique /audio/... URL per lesson in startVideoRendering —
+  // overwriting all lessons with mediaUrl (first lesson) made every lesson play the same sound.
+  if (videoUrl && !videoUrl.startsWith('/audio/')) {
     const courseModules = await db.select().from(modules).where(eq(modules.courseId, courseId));
     const moduleIds = courseModules.map((m) => m.id);
     if (moduleIds.length > 0) {
       await db.update(lessons)
         .set({ videoUrl })
-        .where(inArray(lessons.moduleId, moduleIds));
+        .where(inList(lessons.moduleId, moduleIds));
     }
   }
 }
@@ -334,10 +336,10 @@ export async function compensateEmbeddings(courseId: string): Promise<void> {
   const courseModules = await db.select().from(modules).where(eq(modules.courseId, courseId));
   const moduleIds = courseModules.map((m) => m.id);
   if (moduleIds.length > 0) {
-    const courseLessons = await db.select().from(lessons).where(inArray(lessons.moduleId, moduleIds));
+    const courseLessons = await db.select().from(lessons).where(inList(lessons.moduleId, moduleIds));
     const lessonIds = courseLessons.map((l) => l.id);
     if (lessonIds.length > 0) {
-      await db.delete(embeddings).where(inArray(embeddings.lessonId, lessonIds));
+      await db.delete(embeddings).where(inList(embeddings.lessonId, lessonIds));
     }
   }
 }

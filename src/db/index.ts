@@ -2,7 +2,8 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import * as dotenv from 'dotenv';
 import * as schema from './schema';
-import { sql } from 'drizzle-orm';
+import { SQL, sql } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 
 dotenv.config();
 
@@ -11,6 +12,17 @@ const pool = new pg.Pool({
 });
 
 export const db = drizzle(pool, { schema });
+
+/**
+ * Safe IN (...) predicate for node-postgres.
+ * Drizzle's inArray() can emit broken SQL like IN ($1$2$3) without commas.
+ */
+export function inList(column: PgColumn, values: string[]): SQL {
+  if (values.length === 0) {
+    return sql`false`;
+  }
+  return sql`${column} IN (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`;
+}
 
 /**
  * Context manager that runs database operations inside a PostgreSQL transaction,

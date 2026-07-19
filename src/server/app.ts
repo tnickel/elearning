@@ -5,9 +5,9 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 import { Connection, Client } from '@temporalio/client';
-import { db, withTenant } from '../db';
+import { db, withTenant, inList } from '../db';
 import { users, courses, modules, lessons, embeddings } from '../db/schema';
-import { eq, desc, asc, sql, and, cosineDistance, inArray } from 'drizzle-orm';
+import { eq, desc, asc, sql, and, cosineDistance } from 'drizzle-orm';
 import { authenticateToken, generateToken, UserPayload } from './auth';
 import { recordHeartbeat, verifyHashChain } from './timeTracking';
 import { runMigrations } from '../db/migrations';
@@ -108,6 +108,7 @@ app.post('/api/courses/generate', authenticateToken, async (req, res) => {
       tenantId: user.tenantId,
       topic,
       status: 'curriculum_draft',
+      progress: { duration: duration || '2_weeks', percent: 0, step: 'curriculum_draft' },
     }).returning();
     res.status(202).json({
       message: 'Course draft initiated.',
@@ -135,11 +136,18 @@ app.post('/api/courses/wizard/step1-curriculum', authenticateToken, async (req, 
       custom_prompt: customPrompt || undefined
     };
 
-    const response = await fetch(`${AI_SERVICE_URL}/generate-curriculum`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${AI_SERVICE_URL}/generate-curriculum`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (fetchErr: any) {
+      throw new Error(
+        `AI-Service nicht erreichbar unter ${AI_SERVICE_URL} (${fetchErr?.message || 'fetch failed'}). Bitte python src/ai_service/main.py starten.`
+      );
+    }
 
     if (!response.ok) {
       throw new Error(`AI Service returned status ${response.status}: ${await response.text()}`);
@@ -245,7 +253,7 @@ app.post('/api/courses/wizard/step2-content', authenticateToken, async (req, res
       return res.status(400).json({ error: 'No modules found for course' });
     }
 
-    const allLessons = await db.select().from(lessons).where(inArray(lessons.moduleId, moduleIds));
+    const allLessons = await db.select().from(lessons).where(inList(lessons.moduleId, moduleIds));
 
     // Update course status to generating content
     await db.update(courses).set({ status: 'generating', progress: { percent: 25, step: 'Generiere Lektionsinhalte...' } }).where(eq(courses.id, courseId));
@@ -437,7 +445,7 @@ app.get('/api/courses/:id', authenticateToken, async (req, res) => {
     let courseLessons: any[] = [];
     if (moduleIds.length > 0) {
       courseLessons = await db.select().from(lessons)
-        .where(inArray(lessons.moduleId, moduleIds))
+        .where(inList(lessons.moduleId, moduleIds))
         .orderBy(asc(lessons.createdAt));
     }
 
@@ -670,12 +678,19 @@ app.post('/api/tutor/query', authenticateToken, async (req, res) => {
 
     // C. Combine text chunks to construct context
     const contextText = contextChunks
-      .map((c) => `Lektion: ${c.lessonTitle}\nInhalt: ${c.textContent}`)
-      .join('\n\n');
+      .map((c) => `Lektion: ${c.lessonTitle}\nInhalt: ${c.textContent || ''}`)
+      .join('\n\n')
+      .trim();
+
+    if (!contextText) {
+      return res.json({
+        answer:
+          'Für diesen Kurs sind noch keine Lektionsinhalte indexiert. Bitte im Admin-Bereich den Wizard öffnen und Schritt 2 (Inhalte & Skripte) generieren — erst dann kann der Tutor Fragen beantworten.',
+        contextUsed: [],
+      });
+    }
 
     // D. Fetch AI Service endpoint to generate answer
-    // For simplicity, we can do a prompt directly to OpenRouter or call a /generate-answer mock endpoint.
-    // We make a direct LLM call via the AI Service by asking it to complete a prompt.
     const prompt = `Du bist ein hilfreicher KI-Tutor. Beantworte die Frage des Schülers ausschließlich basierend auf dem folgenden Kurskontext:
 ---
 ${contextText}

@@ -29,7 +29,8 @@ declare global {
  */
 export function generateToken(payload: UserPayload): string {
   return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: '15m', // Strict 15-minute token lifespan (prevent replay attacks)
+    // Long enough for multi-lesson AI generation + wizard polling (15 lessons can take >15min)
+    expiresIn: '4h',
     issuer: JWT_ISSUER,
     audience: JWT_AUDIENCE,
   });

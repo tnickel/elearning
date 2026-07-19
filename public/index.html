@@ -124,15 +124,22 @@
             <div id="active-lesson-card" class="glass-card lesson-card">
               <h2 id="lesson-title">Lektionstitel</h2>
               
-              <!-- Video Avatar (HeyGen Mock/Real Player) -->
-              <div class="video-container">
-                <video id="avatar-video-player" controls poster="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80">
+              <!-- Media player: audio-only shows synced slides; real video uses the video element -->
+              <div class="video-container" id="lesson-media-container">
+                <div id="slide-stage" class="slide-stage">
+                  <div class="slide-stage-inner">
+                    <p class="slide-stage-eyebrow" id="slide-stage-eyebrow">Präsentationsfolie</p>
+                    <h3 id="slide-stage-title">Folie</h3>
+                    <ul id="slide-stage-bullets"></ul>
+                  </div>
+                  <div class="slide-stage-footer">
+                    <span id="slide-stage-counter">Folie 1 von 1</span>
+                    <span id="slide-stage-media-label">ElevenLabs Audio</span>
+                  </div>
+                </div>
+                <video id="avatar-video-player" controls playsinline>
                   Your browser does not support the video tag.
                 </video>
-                <div class="video-overlay-info">
-                  <i data-lucide="play-circle"></i>
-                  <span>KI Avatar Video (HeyGen & ElevenLabs)</span>
-                </div>
               </div>
 
               <!-- Content Tabs -->

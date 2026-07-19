@@ -471,7 +471,7 @@ body {
   aspect-ratio: 16/9;
   border-radius: 12px;
   overflow: hidden;
-  background: black;
+  background: #0b1220;
   border: 1px solid var(--glass-border);
   margin-bottom: 24px;
 }
@@ -480,27 +480,88 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  position: relative;
+  z-index: 2;
+  background: transparent;
 }
 
-.video-overlay-info {
+.video-container.audio-mode video {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(0,0,0,0.6);
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  backdrop-filter: blur(4px);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48px;
+  width: 100%;
+  z-index: 3;
+  object-fit: contain;
+  background: rgba(0,0,0,0.55);
 }
 
-.video-overlay-info i {
+.video-container.video-mode .slide-stage {
+  display: none;
+}
+
+.slide-stage {
+  position: absolute;
+  inset: 0 0 48px 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 32px 16px;
+  background:
+    radial-gradient(ellipse at top right, rgba(6, 182, 212, 0.18), transparent 45%),
+    radial-gradient(ellipse at bottom left, rgba(99, 102, 241, 0.22), transparent 50%),
+    linear-gradient(160deg, #10182a 0%, #0b1220 55%, #121a2e 100%);
+}
+
+.slide-stage-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.slide-stage-eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--accent-secondary);
-  width: 14px;
-  height: 14px;
+  font-weight: 600;
+}
+
+#slide-stage-title {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.4vw, 1.9rem);
+  line-height: 1.25;
+  color: #fff;
+}
+
+#slide-stage-bullets {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+#slide-stage-bullets li {
+  margin-bottom: 0.35rem;
+}
+
+.slide-stage-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 10px;
+  margin-top: 8px;
 }
 
 /* Tabs */
@@ -912,6 +973,16 @@ tr:last-child td {
 }
 
 /* Animations */
+.spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @keyframes floatIn {
   from {
     transform: translateY(20px);

@@ -58,9 +58,23 @@ export async function runMigrations() {
     $$;
   `);
 
-  await db.execute(sql`GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO elearning_app;`);
-  await db.execute(sql`GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO elearning_app;`);
-  await db.execute(sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO elearning_app;`);
+  // GRANT can fail with "tuple concurrently updated" when multiple processes
+  // (server + start.bat + worker) run migrations at the same time. Retry briefly.
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      await db.execute(sql`GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO elearning_app;`);
+      await db.execute(sql`GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO elearning_app;`);
+      await db.execute(sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO elearning_app;`);
+      break;
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      if (!msg.includes('tuple concurrently updated') || attempt === 5) {
+        throw err;
+      }
+      console.warn(`[migrations] GRANT conflict (attempt ${attempt}/5), retrying...`);
+      await new Promise((r) => setTimeout(r, 200 * attempt));
+    }
+  }
 
   console.log('Custom RLS, pgvector Index and non-superuser role applied successfully.');
 }
