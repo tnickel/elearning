@@ -10,7 +10,13 @@ app = FastAPI(title="Zero-Ops AI E-Learning Service")
 # Pydantic Schemas for Instructor
 class SlideSchema(BaseModel):
     title: str = Field(..., description="Titel der Folie")
-    bullets: List[str] = Field(..., description="3 bis 5 stichpunktartige Kernaussagen für diese Folie")
+    layout: str = Field("bullets", description="Layout-Typ der Folie: 'bullets' (Text-Aufzählung), 'mermaid' (Mermaid-Diagramm), 'code' (Code-Beispiel), 'image' (vollflächiges Bild)")
+    bullets: Optional[List[str]] = Field(None, description="Stichpunkte (für 'bullets' und 'code' Layouts)")
+    mermaid_code: Optional[str] = Field(None, description="Mermaid-Diagramm-Code (für 'mermaid' Layout; z.B. flowcharts, timelines)")
+    code_snippet: Optional[str] = Field(None, description="Code-Ausschnitt (für 'code' Layout)")
+    code_language: Optional[str] = Field("javascript", description="Programmiersprache des Code-Ausschnitts (z.B. 'yaml', 'dockerfile', 'python')")
+    image_prompt: Optional[str] = Field(None, description="Beschreibung des Bildes für die Generierung (für 'image' und 'bullets' Layouts)")
+    image_url: Optional[str] = Field(None, description="Lokaler Pfad zum Bild (z.B. /images/...)")
 
 class LessonSchema(BaseModel):
     title: str = Field(..., description="Titel der Lektion")
@@ -59,6 +65,21 @@ class EmbeddingRequest(BaseModel):
 class AnswerRequest(BaseModel):
     prompt: str
     tenant_id: str
+
+class SlideNarrationRequest(BaseModel):
+    course_topic: str
+    slide_title: str = ""
+    slide_bullets: List[str] = []
+    slide_index: int = 0
+    total_slides: int = 1
+    image_base64: Optional[str] = None  # PNG/JPEG without data: prefix
+    image_mime: str = "image/png"
+    tenant_id: str = ""
+    custom_prompt: Optional[str] = None
+
+class SlideNarrationSchema(BaseModel):
+    speaker_notes: str = Field(..., description="Gesprochener Text für diese Folie, 80-160 Wörter, natürliche Trainer-Sprache")
+    summary: str = Field("", description="Kurze Inhaltszusammenfassung der Folie in einem Satz")
 
 # Lazy local model loader
 _embedding_model = None
@@ -320,6 +341,85 @@ def generate_answer(req: AnswerRequest):
         return {"answer": response.choices[0].message.content}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LLM Answer Generation failed: {str(e)}")
+
+
+@app.post("/generate-slide-narration", response_model=SlideNarrationSchema)
+def generate_slide_narration(req: SlideNarrationRequest):
+    """Vision-capable: looks at a slide image and writes spoken trainer script for ElevenLabs."""
+    key = config.get_openrouter_api_key()
+    is_mock = not key or key == "mock-openrouter-key"
+
+    bullets_txt = "\n".join(f"- {b}" for b in (req.slide_bullets or []) if b)
+    position = f"Folie {req.slide_index + 1} von {req.total_slides}"
+
+    if is_mock:
+        return SlideNarrationSchema(
+            speaker_notes=(
+                f"Schauen wir uns jetzt {position} an: {req.slide_title or 'diese Folie'}. "
+                f"Im Kurs „{req.course_topic}“ geht es hier um die Kernaussagen auf dem Bild. "
+                f"{('Stichpunkte: ' + ', '.join(req.slide_bullets[:3]) + '. ') if req.slide_bullets else ''}"
+                f"Merke dir diese Zusammenhänge – im nächsten Schritt bauen wir darauf auf."
+            ),
+            summary=req.slide_title or f"Inhalt von {position}",
+        )
+
+    from openai import OpenAI
+
+    system_prompt = (
+        "Du bist ein erfahrener IT-Trainer und schreibst Sprecherskripte für E-Learning. "
+        "Schreibe natürlichen, gesprochenen Text (Du-Form oder wir-Form), klar und didaktisch. "
+        "Keine Meta-Kommentare wie „Auf dieser Folie sieht man…“. "
+        "Erkläre kurz, was wichtig ist, und leite sanft weiter. "
+        "Länge: etwa 80–160 Wörter. Antworte NUR mit gültigem JSON: "
+        '{"speaker_notes":"...","summary":"..."}'
+    )
+
+    user_text = req.custom_prompt or (
+        f"Kurs: {req.course_topic}\n"
+        f"{position}\n"
+        f"Folientitel: {req.slide_title or '(ohne Titel)'}\n"
+        f"Stichpunkte:\n{bullets_txt or '(keine)'}\n\n"
+        "Analysiere die Folie (Text und Grafik) und schreibe das Sprecherskript."
+    )
+
+    user_content: list = [{"type": "text", "text": user_text}]
+    if req.image_base64:
+        user_content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{req.image_mime or 'image/png'};base64,{req.image_base64}"
+            },
+        })
+
+    try:
+        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=key)
+        # Prefer vision-capable model; fall back to configured model
+        model_name = config.get_openrouter_model()
+        print(f"[generate_slide_narration] model={model_name} slide={req.slide_index + 1}/{req.total_slides} title={req.slide_title!r}", flush=True)
+
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.6,
+        )
+        raw = response.choices[0].message.content or "{}"
+        import json
+        data = json.loads(raw)
+        notes = (data.get("speaker_notes") or data.get("script") or "").strip()
+        if not notes:
+            raise ValueError("Leeres speaker_notes in LLM-Antwort")
+        return SlideNarrationSchema(
+            speaker_notes=notes,
+            summary=(data.get("summary") or req.slide_title or "").strip(),
+        )
+    except Exception as e:
+        print(f"[generate_slide_narration] Error: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Slide narration failed: {str(e)}")
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8085)

@@ -14,6 +14,10 @@ const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8i
 const HEYGEN_API_URL = process.env.HEYGEN_API_URL || 'http://localhost:3000/api/mock/heygen';
 const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY || 'mock-heygen-key';
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:3000/api/webhooks/heygen';
+const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY || '';
+const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID || '';
+const MINIMAX_VOICE_ID = process.env.MINIMAX_VOICE_ID || 'male-qn-qingse';
+const MINIMAX_MODEL = process.env.MINIMAX_MODEL || 'speech-02-hd';
 
 // Helper to make API calls to Python AI Service
 async function callAiService(endpoint: string, body: any) {
@@ -37,11 +41,11 @@ async function callAiService(endpoint: string, body: any) {
 export async function generateCurriculum(courseId: string, topic: string, tenantId: string, duration?: string): Promise<void> {
   console.log(`Generating curriculum for course ${courseId} on topic: ${topic} with duration: ${duration || '2_weeks'}`);
   
-  const curriculum = await callAiService('/generate-curriculum', {
+  const curriculum = (await callAiService('/generate-curriculum', {
     topic,
     tenant_id: tenantId,
     duration: duration || '2_weeks',
-  });
+  })) as any;
 
   // Save modules and lessons in database
   await db.transaction(async (tx) => {
@@ -106,12 +110,12 @@ export async function generateLessonsAndEmbeddings(courseId: string, topic: stri
     console.log(`Generating content for lesson: ${lesson.title}`);
     
     // Generate detailed content via Instructor
-    const content = await callAiService('/generate-lesson', {
+    const content = (await callAiService('/generate-lesson', {
       course_topic: topic,
       module_title: moduleTitle,
       lesson_title: lesson.title,
       tenant_id: tenantId,
-    });
+    })) as any;
 
     // Update lesson details in the database
     await db.update(lessons)
@@ -121,10 +125,10 @@ export async function generateLessonsAndEmbeddings(courseId: string, topic: stri
     // Generate 1536-dimensional embeddings for RAG
     // We embed the text content (theory) of the lesson
     console.log(`Generating vector embedding for lesson: ${lesson.title}`);
-    const embeddingResponse = await callAiService('/generate-embeddings', {
+    const embeddingResponse = (await callAiService('/generate-embeddings', {
       text: content.text_content,
       tenant_id: tenantId,
-    });
+    })) as any;
 
     // Save vector in the database (with RLS)
     await withTenant(tenantId, async (tx) => {
@@ -141,10 +145,23 @@ export async function generateLessonsAndEmbeddings(courseId: string, topic: stri
 
 // 3. Initiate ElevenLabs Audio and HeyGen Avatar Video rendering
 export async function startVideoRendering(courseId: string, tenantId: string): Promise<{ videoId: string; awaitWebhook: boolean; mediaUrl?: string }> {
+  // Reload environment variables dynamically from the .env file on disk
+  dotenv.config({ override: true });
+
+
   const GENERATE_VIDEO = process.env.GENERATE_VIDEO === 'true';
   const VIDEO_PROVIDER = process.env.VIDEO_PROVIDER || 'elevenlabs';
+  const TTS_PROVIDER = process.env.TTS_PROVIDER || 'elevenlabs';
 
-  console.log(`Initiating media generation for course ${courseId} (GENERATE_VIDEO: ${GENERATE_VIDEO}, VIDEO_PROVIDER: ${VIDEO_PROVIDER})...`);
+  const currentElevenLabsApiKey = process.env.ELEVENLABS_API_KEY || 'mock-elevenlabs-key';
+  const currentElevenLabsVoiceId = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
+
+  const currentMiniMaxApiKey = process.env.MINIMAX_API_KEY || '';
+  const currentMiniMaxGroupId = process.env.MINIMAX_GROUP_ID || '';
+  const currentMiniMaxVoiceId = process.env.MINIMAX_VOICE_ID || 'German_FriendlyMan';
+  const currentMiniMaxModel = process.env.MINIMAX_MODEL || 'speech-02-hd';
+
+  console.log(`Initiating media generation for course ${courseId} (GENERATE_VIDEO: ${GENERATE_VIDEO}, VIDEO_PROVIDER: ${VIDEO_PROVIDER}, TTS_PROVIDER: ${TTS_PROVIDER})...`);
 
   // Fetch all modules of the course
   const courseModules = await db.select().from(modules).where(eq(modules.courseId, courseId));
@@ -161,7 +178,8 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
     throw new Error(`No lessons found for course ${courseId}`);
   }
 
-  const isMockElevenLabs = !ELEVENLABS_API_KEY || ELEVENLABS_API_KEY === 'mock-elevenlabs-key';
+  const isMockElevenLabs = !currentElevenLabsApiKey || currentElevenLabsApiKey === 'mock-elevenlabs-key';
+  const isMockMiniMax = !currentMiniMaxApiKey || !currentMiniMaxGroupId;
 
   // Make sure the public/audio directory exists
   const audioDir = path.join(process.cwd(), 'public', 'audio');
@@ -175,22 +193,84 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
   for (let i = 0; i < allLessons.length; i++) {
     const lesson = allLessons[i];
     const payload = lesson.contentPayload as any;
-    const script = payload.teleprompter_script || 'Willkommen bei dieser Lektion.';
+    // Prefer per-slide speaker_notes (PPTX Vision pipeline); fall back to lesson teleprompter
+    const slideNotes = (payload.slides || [])
+      .map((s: any) => (s.speaker_notes || '').trim())
+      .filter(Boolean);
+    const script =
+      slideNotes.length > 0
+        ? slideNotes.join('\n\n')
+        : (payload.teleprompter_script || 'Willkommen bei dieser Lektion.');
 
     let lessonMediaUrl = '';
 
-    if (!isMockElevenLabs) {
-      console.log(`[TTS] Generating ElevenLabs audio for lesson ${i + 1}/${allLessons.length}: "${lesson.title}" using voice ID ${ELEVENLABS_VOICE_ID}...`);
+    await updateCourseProgress(
+      courseId,
+      Math.round(80 + ((i + 1) / allLessons.length) * 10),
+      `TTS Lektion ${i + 1}/${allLessons.length}: „${lesson.title}“…`
+    );
+
+    if (TTS_PROVIDER === 'minimax' && !isMockMiniMax) {
+      // ── MiniMax TTS ──────────────────────────────────────────────────────────
+      console.log(`[TTS/MiniMax] Generating audio for lesson ${i + 1}/${allLessons.length}: "${lesson.title}" (model: ${currentMiniMaxModel}, voice: ${currentMiniMaxVoiceId})...`);
       try {
-        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+        const response = await fetch(`https://api.minimax.io/v1/t2a_v2?GroupId=${currentMiniMaxGroupId}`, {
           method: 'POST',
           headers: {
-            'xi-api-key': ELEVENLABS_API_KEY,
+            'Authorization': `Bearer ${currentMiniMaxApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: currentMiniMaxModel,
+            text: script,
+            stream: false,
+            voice_setting: {
+              voice_id: currentMiniMaxVoiceId,
+              speed: 1.0,
+              vol: 1.0,
+              pitch: 0,
+            },
+            output_format: 'hex',
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`MiniMax returned status ${response.status}: ${await response.text()}`);
+        }
+
+        const data = await response.json() as any;
+        if (data?.base_resp?.status_code !== undefined && data.base_resp.status_code !== 0) {
+          throw new Error(`MiniMax API Error ${data.base_resp.status_code}: ${data.base_resp.status_msg}`);
+        }
+        // MiniMax returns base64-encoded audio in data.audio.audio
+        if (!data?.audio?.audio) {
+          throw new Error('MiniMax response missing audio data');
+        }
+        const audioBuffer = Buffer.from(data.audio.audio, 'hex');
+        const fileName = `audio-${courseId}-${lesson.id}.mp3`;
+        fs.writeFileSync(path.join(audioDir, fileName), audioBuffer);
+        lessonMediaUrl = `/audio/${fileName}`;
+        console.log(`[TTS/MiniMax] Audio synthesized successfully for lesson: "${lesson.title}".`);
+      } catch (err: any) {
+        console.error(`[TTS/MiniMax] Call failed for lesson "${lesson.title}": ${err.message}. Using fallback mock audio.`);
+        lessonMediaUrl = 'https://www.w3schools.com/html/mov_bbb.mp4';
+      }
+    } else if (TTS_PROVIDER === 'minimax' && isMockMiniMax) {
+      console.log(`[TTS/MiniMax] Running in MOCK mode for lesson "${lesson.title}" (API key or Group ID missing).`);
+      lessonMediaUrl = 'https://www.w3schools.com/html/mov_bbb.mp4';
+    } else if (!isMockElevenLabs) {
+      // ── ElevenLabs TTS ───────────────────────────────────────────────────────
+      console.log(`[TTS] Generating ElevenLabs audio for lesson ${i + 1}/${allLessons.length}: "${lesson.title}" using voice ID ${currentElevenLabsVoiceId}...`);
+      try {
+        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${currentElevenLabsVoiceId}`, {
+          method: 'POST',
+          headers: {
+            'xi-api-key': currentElevenLabsApiKey,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             text: script,
-            model_id: 'eleven_multilingual_v2', // Changed from deprecated eleven_monolingual_v1
+            model_id: 'eleven_multilingual_v2',
             voice_settings: { stability: 0.5, similarity_boost: 0.75 },
           }),
         });

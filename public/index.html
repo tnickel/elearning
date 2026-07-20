@@ -12,6 +12,30 @@
   <link rel="stylesheet" href="css/style.css?v=2">
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Mermaid JS for Flowcharts -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      if (typeof mermaid !== 'undefined') {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'base',
+          securityLevel: 'loose',
+          themeVariables: {
+            background: 'transparent',
+            primaryColor: '#141b2d',
+            primaryTextColor: '#f3f4f6',
+            primaryBorderColor: '#8b5cf6',
+            lineColor: '#06b6d4',
+            secondaryColor: '#0b0f19',
+            tertiaryColor: '#141b2d',
+            fontSize: '15px',
+            fontFamily: 'Outfit, sans-serif'
+          }
+        });
+      }
+    });
+  </script>
 </head>
 <body>
 
@@ -126,13 +150,52 @@
               
               <!-- Media player: audio-only shows synced slides; real video uses the video element -->
               <div class="video-container" id="lesson-media-container">
-                <div id="slide-stage" class="slide-stage">
-                  <div class="slide-stage-inner">
-                    <p class="slide-stage-eyebrow" id="slide-stage-eyebrow">Präsentationsfolie</p>
-                    <h3 id="slide-stage-title">Folie</h3>
-                    <ul id="slide-stage-bullets"></ul>
+                <button id="video-fullscreen-btn" class="btn btn-icon" onclick="toggleFullscreen()" style="position: absolute; top: 12px; right: 12px; z-index: 10; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #fff; padding: 8px; cursor: pointer; backdrop-filter: blur(4px); transition: all 0.2s; width: auto; height: auto; display: flex; align-items: center; justify-content: center;" title="Vollbildmodus">
+                  <i data-lucide="maximize" style="width: 16px; height: 16px;"></i>
+                </button>
+                <div id="slide-stage" class="slide-stage" style="position: absolute; inset: 0 0 48px 0; z-index: 1; display: flex; flex-direction: column; padding: 24px 32px 16px; background: radial-gradient(ellipse at top right, rgba(6, 182, 212, 0.18), transparent 45%), radial-gradient(ellipse at bottom left, rgba(99, 102, 241, 0.22), transparent 50%), linear-gradient(160deg, #10182a 0%, #0b1220 55%, #121a2e 100%);">
+                  <div id="slide-stage-container" style="display: flex; flex-direction: column; flex-grow: 1; justify-content: center; width: 100%; overflow: hidden;">
+                    <!-- Standard text layout (default) -->
+                    <div id="slide-layout-bullets" class="slide-layout" style="display: flex; gap: 24px; align-items: center; width: 100%; flex-grow: 1; overflow: hidden;">
+                      <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: left; overflow: hidden;">
+                        <p class="slide-stage-eyebrow" id="slide-stage-eyebrow">Präsentationsfolie</p>
+                        <h3 id="slide-stage-title" style="margin: 4px 0 12px 0; font-size: clamp(1.35rem, 2.4vw, 1.9rem); line-height: 1.25; color: #fff;">Folie</h3>
+                        <ul id="slide-stage-bullets" style="margin: 0; padding-left: 1.2rem; line-height: 1.7; font-size: 1.05rem; color: var(--text-primary);"></ul>
+                      </div>
+                      <div id="slide-stage-img-wrapper" class="glass-card" style="width: 320px; aspect-ratio: 16/9; overflow: hidden; display: none; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); padding: 0; flex-shrink: 0; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                        <img id="slide-stage-image" src="" alt="Folie Illustration" style="width: 100%; height: 100%; object-fit: cover;">
+                      </div>
+                    </div>
+
+                    <!-- Mermaid diagram layout -->
+                    <div id="slide-layout-mermaid" class="slide-layout hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; overflow: hidden;">
+                      <h3 id="slide-stage-mermaid-title" style="color: #fff; margin: 0 0 12px 0; text-align: center; font-size: 1.5rem; font-weight: 600;">Diagramm</h3>
+                      <div id="slide-stage-mermaid-container" style="width: 100%; max-height: 250px; overflow: auto; display: flex; justify-content: center; background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px;"></div>
+                    </div>
+
+                    <!-- Full-bleed PowerPoint image (1:1 import) -->
+                    <div id="slide-layout-image" class="slide-layout slide-layout-image hidden" style="width: 100%; height: 100%; flex-grow: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #000;">
+                      <img id="slide-stage-full-image" src="" alt="PowerPoint-Folie" style="width: 100%; height: 100%; object-fit: contain; display: block;">
+                    </div>
+
+                    <!-- Code layout -->
+                    <div id="slide-layout-code" class="slide-layout hidden" style="width: 100%; display: flex; gap: 24px; align-items: stretch; text-align: left; flex-grow: 1; overflow: hidden;">
+                      <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; overflow: hidden;">
+                        <h3 id="slide-stage-code-title" style="color: #fff; margin: 0 0 10px 0; font-size: 1.5rem; font-weight: 600;">Code-Beispiel</h3>
+                        <ul id="slide-stage-code-bullets" style="margin: 0; padding-left: 1.2rem; line-height: 1.7; font-size: 0.95rem; color: var(--text-primary);"></ul>
+                      </div>
+                      <div class="glass-card" style="flex: 1.2; display: flex; flex-direction: column; background: #070913; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); font-family: monospace; overflow: hidden; text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                        <div style="background: rgba(255,255,255,0.03); padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.75rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                          <span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+                          <span style="width: 8px; height: 8px; border-radius: 50%; background: #eab308; display: inline-block;"></span>
+                          <span style="width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>
+                          <span id="slide-stage-code-filename" style="margin-left: 8px; font-family: 'Outfit', sans-serif; color: #fff;">code</span>
+                        </div>
+                        <pre style="margin: 0; padding: 12px; overflow: auto; font-size: 0.8rem; color: #a78bfa; flex-grow: 1;"><code id="slide-stage-code-block"></code></pre>
+                      </div>
+                    </div>
                   </div>
-                  <div class="slide-stage-footer">
+                  <div class="slide-stage-footer" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-secondary); border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; margin-top: 8px;">
                     <span id="slide-stage-counter">Folie 1 von 1</span>
                     <span id="slide-stage-media-label">ElevenLabs Audio</span>
                   </div>
@@ -140,6 +203,7 @@
                 <video id="avatar-video-player" controls playsinline>
                   Your browser does not support the video tag.
                 </video>
+
               </div>
 
               <!-- Content Tabs -->
@@ -255,7 +319,24 @@
                 Kurs automatisch erstellen <i data-lucide="sparkles"></i>
               </button>
             </form>
+
+            <!-- Divider -->
+            <div style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.06); position: relative; text-align: center;">
+              <span style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #0b111e; padding: 0 12px; font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Oder</span>
+            </div>
+
+            <!-- PowerPoint Upload Dropzone -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 500;">Bestehende PowerPoint-Präsentation (.pptx) importieren</label>
+              <div id="pptx-dropzone" style="border: 2px dashed rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 20px; text-align: center; background: rgba(139, 92, 246, 0.02); cursor: pointer; transition: all 0.3s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.borderColor='var(--accent-primary)'; this.style.background='rgba(139, 92, 246, 0.05)';" onmouseout="this.style.borderColor='rgba(139, 92, 246, 0.3)'; this.style.background='rgba(139, 92, 246, 0.02)';">
+                <i data-lucide="presentation" style="width: 32px; height: 32px; color: var(--accent-primary);"></i>
+                <span id="pptx-dropzone-text" style="font-size: 0.85rem; color: var(--text-primary); font-weight: 500;">Datei auswählen oder hierher ziehen</span>
+                <span style="font-size: 0.7rem; color: var(--text-secondary);">.pptx max. 50MB — Folien werden 1:1 als Bilder exportiert (PowerPoint nötig)</span>
+                <input type="file" id="pptx-file-input" accept=".pptx" style="display: none;">
+              </div>
+            </div>
           </div>
+
 
           <!-- Audit Log Verifier -->
           <div class="glass-card admin-control-card">
@@ -306,22 +387,22 @@
                     </div>
                   </div>
                   <div>
-                    <label for="cfg-video-provider">Video-Anbieter</label>
+                    <label for="cfg-tts-provider">Audio-Generator (TTS)</label>
+                    <div class="input-wrapper">
+                      <i data-lucide="mic"></i>
+                      <select id="cfg-tts-provider" onchange="onTtsProviderChange()">
+                        <option value="elevenlabs">ElevenLabs</option>
+                        <option value="minimax">MiniMax</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label for="cfg-video-provider">Video-Anbieter (Avatar)</label>
                     <div class="input-wrapper">
                       <i data-lucide="cpu"></i>
                       <select id="cfg-video-provider">
                         <option value="elevenlabs">ElevenLabs Lip-Sync</option>
                         <option value="heygen">HeyGen Avatars</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label for="cfg-elevenlabs-tts-only">ElevenLabs TTS-only</label>
-                    <div class="input-wrapper">
-                      <i data-lucide="volume-2"></i>
-                      <select id="cfg-elevenlabs-tts-only">
-                        <option value="true">Nur Sprache / TTS-only</option>
-                        <option value="false">Volle Stimmengenerierung</option>
                       </select>
                     </div>
                   </div>
@@ -387,28 +468,113 @@
                   </div>
                 </div>
 
-                <div class="form-group">
-                  <label for="cfg-elevenlabs-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                    <span>ElevenLabs API-Key</span>
-                    <button type="button" id="btn-test-elevenlabs" style="font-size: 11px; padding: 2px 8px; height: auto; margin: 0; line-height: 1.2; display: flex; align-items: center; gap: 4px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
-                      <i data-lucide="shield-check" style="width: 12px; height: 12px;"></i> Key testen
-                    </button>
-                  </label>
-                  <div class="input-wrapper">
-                    <i data-lucide="key"></i>
-                    <input type="text" id="cfg-elevenlabs-key" placeholder="Abonnement Key für Voice">
+                <!-- ====== AUDIO-GENERATOREN SEKTION ====== -->
+                <div style="grid-column: span 2; margin-top: 8px;">
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+                    <i data-lucide="headphones" style="color: var(--accent-primary); width: 18px; height: 18px;"></i>
+                    <h4 style="margin: 0; font-size: 0.9rem; color: var(--text-primary);">Audio-Generatoren (TTS)</h4>
+                    <span id="tts-active-badge" style="font-size: 10px; padding: 2px 8px; border-radius: 20px; background: rgba(132,90,223,0.25); border: 1px solid rgba(132,90,223,0.5); color: #c084fc; font-weight: 600; letter-spacing: 0.04em;">AKTIV: ElevenLabs</span>
                   </div>
-                  <div id="elevenlabs-test-status" style="font-size: 11px; margin-top: 4px; font-weight: 500; display: none;"></div>
+
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+
+                    <!-- ElevenLabs Card -->
+                    <div id="card-elevenlabs" class="glass-card" style="padding: 16px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); position: relative; transition: border-color 0.3s;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <i data-lucide="volume-2" style="color: #a78bfa; width: 16px; height: 16px;"></i>
+                          <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">ElevenLabs</span>
+                          <span style="font-size: 9px; background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.3); color: #a78bfa; padding: 1px 6px; border-radius: 10px;">~$0.30–0.60 / 1M Zeichen</span>
+                        </div>
+                        <div id="el-active-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #51cf66; box-shadow: 0 0 6px #51cf66; display: block;"></div>
+                      </div>
+                      <div class="form-group" style="margin-bottom: 12px;">
+                        <label for="cfg-elevenlabs-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 0.78rem;">
+                          <span>API-Key</span>
+                          <button type="button" id="btn-test-elevenlabs" style="font-size: 10px; padding: 2px 7px; height: auto; margin: 0; display: flex; align-items: center; gap: 3px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
+                            <i data-lucide="shield-check" style="width: 10px; height: 10px;"></i> Testen
+                          </button>
+                        </label>
+                        <div class="input-wrapper" style="margin-top: 4px;">
+                          <i data-lucide="key"></i>
+                          <input type="text" id="cfg-elevenlabs-key" placeholder="sk_...">
+                        </div>
+                        <div id="elevenlabs-test-status" style="font-size: 10px; margin-top: 4px; font-weight: 500; display: none;"></div>
+                      </div>
+                      <div class="form-group" style="margin-bottom: 0;">
+                        <label for="cfg-elevenlabs-voice" style="font-size: 0.78rem;">Voice ID</label>
+                        <div class="input-wrapper" style="margin-top: 4px;">
+                          <i data-lucide="mic"></i>
+                          <input type="text" id="cfg-elevenlabs-voice" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM">
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- MiniMax Card -->
+                    <div id="card-minimax" class="glass-card" style="padding: 16px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); position: relative; transition: border-color 0.3s;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <i data-lucide="zap" style="color: #fb923c; width: 16px; height: 16px;"></i>
+                          <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">MiniMax</span>
+                          <span style="font-size: 9px; background: rgba(251,146,60,0.15); border: 1px solid rgba(251,146,60,0.3); color: #fb923c; padding: 1px 6px; border-radius: 10px;">~$0.18–0.36 / 1M Zeichen</span>
+                        </div>
+                        <div id="mm-active-dot" style="width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.15); display: block;"></div>
+                      </div>
+                      <div class="form-group" style="margin-bottom: 12px;">
+                        <label for="cfg-minimax-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 0.78rem;">
+                          <span>API-Key</span>
+                          <button type="button" id="btn-test-minimax" style="font-size: 10px; padding: 2px 7px; height: auto; margin: 0; display: flex; align-items: center; gap: 3px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
+                            <i data-lucide="shield-check" style="width: 10px; height: 10px;"></i> Testen
+                          </button>
+                        </label>
+                        <div class="input-wrapper" style="margin-top: 4px;">
+                          <i data-lucide="key"></i>
+                          <input type="text" id="cfg-minimax-key" placeholder="eyJ...">
+                        </div>
+                        <div id="minimax-test-status" style="font-size: 10px; margin-top: 4px; font-weight: 500; display: none;"></div>
+                      </div>
+                      <div class="form-group" style="margin-bottom: 12px;">
+                        <label for="cfg-minimax-group" style="font-size: 0.78rem;">Group ID</label>
+                        <div class="input-wrapper" style="margin-top: 4px;">
+                          <i data-lucide="users"></i>
+                          <input type="text" id="cfg-minimax-group" placeholder="123456789">
+                        </div>
+                      </div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-minimax-voice" style="font-size: 0.78rem;">Voice ID</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="mic"></i>
+                            <select id="cfg-minimax-voice">
+                              <option value="German_FriendlyMan">German_FriendlyMan (Deutsch - freundlich, männl.)</option>
+                              <option value="German_SweetLady">German_SweetLady (Deutsch - süß/sanft, weibl.)</option>
+                              <option value="German_PlayfulMan">German_PlayfulMan (Deutsch - verspielt, männl.)</option>
+                              <option value="male-qn-qingse">male-qn-qingse (Chinesisch - jung/sanft, männl.)</option>
+                              <option value="female-shaonv">female-shaonv (Chinesisch - jung/hell, weibl.)</option>
+                              <option value="male-qn-badao">male-qn-badao (Chinesisch - tief, männl.)</option>
+                              <option value="female-yujie">female-yujie (Chinesisch - reif, weibl.)</option>
+                              <option value="audiobook_male_1">audiobook_male_1 (Englisch - Hörbuch, männl.)</option>
+                              <option value="audiobook_female_1">audiobook_female_1 (Englisch - Hörbuch, weibl.)</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-minimax-model" style="font-size: 0.78rem;">Modell</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="cpu"></i>
+                            <select id="cfg-minimax-model">
+                              <option value="speech-02-hd">speech-02-hd (Qualität)</option>
+                              <option value="speech-02-turbo">speech-02-turbo (Schnell/Günstig)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
                 </div>
 
-                <div class="form-group">
-                  <label for="cfg-elevenlabs-voice">ElevenLabs Voice ID</label>
-                  <div class="input-wrapper">
-                    <i data-lucide="volume-2"></i>
-                    <input type="text" id="cfg-elevenlabs-voice" placeholder="Rachel voice ID">
-                  </div>
-                </div>
-
+                <!-- HeyGen -->
                 <div class="form-group">
                   <label for="cfg-heygen-url">HeyGen API URL</label>
                   <div class="input-wrapper">
@@ -429,7 +595,7 @@
                   <h4 style="margin-bottom: 12px; font-size: 0.9rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
                     <i data-lucide="bar-chart-3" style="width: 16px; height: 16px;"></i> Verbrauchs- & Kostenübersicht
                   </h4>
-                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
                     <!-- OpenRouter Status -->
                     <div class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
                       <i data-lucide="wallet" style="color: var(--accent-secondary); width: 22px; height: 22px;"></i>
@@ -444,6 +610,14 @@
                       <div>
                         <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">ElevenLabs Zeichen</div>
                         <div id="stat-elevenlabs-usage" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 2px;">Lade...</div>
+                      </div>
+                    </div>
+                    <!-- MiniMax Status -->
+                    <div class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                      <i data-lucide="zap" style="color: #fb923c; width: 22px; height: 22px;"></i>
+                      <div>
+                        <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">MiniMax Guthaben</div>
+                        <div id="stat-minimax-usage" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 2px;">Lade...</div>
                       </div>
                     </div>
                   </div>
@@ -465,6 +639,7 @@
               <thead>
                 <tr>
                   <th>Thema</th>
+                  <th>Pipeline</th>
                   <th>Status</th>
                   <th>Erstellt am</th>
                   <th>Aktion</th>
@@ -476,6 +651,70 @@
             </table>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PPTX FOLIEN STUDIO WIZARD -->
+  <div id="pptx-studio-modal" class="modal hidden">
+    <div class="modal-content glass-card pptx-studio-shell">
+      <div class="pptx-studio-header">
+        <div>
+          <h3 id="pptx-studio-title"><i data-lucide="presentation"></i> Folien-Wizard</h3>
+          <div id="pptx-studio-pipeline" class="pipeline-checks pipeline-checks-lg"></div>
+        </div>
+        <button onclick="closePptxStudio()" class="btn btn-icon" style="margin: 0;"><i data-lucide="x"></i></button>
+      </div>
+
+      <div id="pptx-studio-batch-bar" class="pptx-batch-bar">
+        <button class="btn btn-secondary btn-sm" id="pptx-btn-all-notes" onclick="pptxGenerateAllNotes()">
+          <i data-lucide="sparkles"></i> Alle Sprechtexte generieren
+        </button>
+        <button class="btn btn-secondary btn-sm" id="pptx-btn-all-tts" onclick="pptxGenerateAllTts()">
+          <i data-lucide="volume-2"></i> Alle Folien vertonen
+        </button>
+        <span id="pptx-studio-batch-status" class="pptx-batch-status"></span>
+        <div style="flex:1"></div>
+        <button class="btn btn-primary btn-sm" id="pptx-btn-approve" onclick="pptxApproveIfReady()">
+          <i data-lucide="check-square"></i> Freigeben
+        </button>
+      </div>
+
+      <div class="pptx-studio-body">
+        <aside class="pptx-thumb-rail" id="pptx-thumb-rail"></aside>
+
+        <main class="pptx-stage-wrap">
+          <div class="pptx-stage" id="pptx-stage">
+            <img id="pptx-stage-img" alt="Folie" />
+            <div id="pptx-stage-empty" class="pptx-stage-empty hidden">Keine Folie ausgewählt</div>
+          </div>
+          <div class="pptx-nav">
+            <button class="btn btn-secondary btn-sm" onclick="pptxPrevSlide()"><i data-lucide="chevron-left"></i> Zurück</button>
+            <span id="pptx-slide-counter">Folie 0 / 0</span>
+            <button class="btn btn-secondary btn-sm" onclick="pptxNextSlide()">Weiter <i data-lucide="chevron-right"></i></button>
+          </div>
+        </main>
+
+        <aside class="pptx-editor-panel">
+          <label class="pptx-field-label">Titel</label>
+          <input type="text" id="pptx-slide-title" class="pptx-input" />
+
+          <label class="pptx-field-label">Sprechtext</label>
+          <textarea id="pptx-slide-notes" class="pptx-textarea" rows="12" placeholder="Sprechtext für diese Folie…"></textarea>
+
+          <div class="pptx-editor-actions">
+            <button class="btn btn-secondary btn-sm" onclick="pptxSaveSlide()"><i data-lucide="save"></i> Speichern</button>
+            <button class="btn btn-primary btn-sm" id="pptx-btn-narrate" onclick="pptxNarrateCurrent()"><i data-lucide="sparkles"></i> Text generieren</button>
+            <button class="btn btn-primary btn-sm" id="pptx-btn-tts" onclick="pptxTtsCurrent()"><i data-lucide="volume-2"></i> Vertonen</button>
+          </div>
+
+          <div id="pptx-audio-box" class="pptx-audio-box hidden">
+            <label class="pptx-field-label">Vertonung</label>
+            <audio id="pptx-audio-player" controls style="width:100%"></audio>
+          </div>
+
+          <p id="pptx-editor-hint" class="pptx-hint"></p>
+        </aside>
       </div>
     </div>
   </div>
@@ -595,7 +834,92 @@
     </div>
   </div>
 
+  <!-- Slide Preview Modal -->
+  <div id="slide-preview-modal" class="modal hidden">
+    <div class="modal-content glass-card" style="width: 96vw; height: 90vh; padding: 0; overflow: hidden; display: flex; flex-direction: column;">
+      <div style="background: rgba(255, 255, 255, 0.03); padding: 16px 24px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <h3 style="margin: 0; color: #fff; display: flex; align-items: center; gap: 8px; font-size: 1.15rem; font-weight: 700;">
+          <i data-lucide="presentation" style="color: var(--accent-primary); width: 22px; height: 22px;"></i> Folien-Vorschau (Referentenansicht)
+        </h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeSlidePreview()" style="width: auto; padding: 6px 12px; margin: 0;"><i data-lucide="x"></i> Schließen</button>
+      </div>
+      
+      <!-- Grid Container: Left Slide, Right Script -->
+      <div style="display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; padding: 20px; background: #0b0f19; overflow: hidden; flex-grow: 1; align-items: stretch;">
+        <!-- Left: Slide -->
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+          <div style="position: relative; aspect-ratio: 16/9; background: #0b1220; width: 100%; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 4px 30px rgba(0,0,0,0.4);">
+            <!-- Slide stage clone inside preview modal -->
+            <div id="preview-slide-stage" class="slide-stage" style="position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; padding: 36px 48px 24px; background: radial-gradient(ellipse at top right, rgba(6, 182, 212, 0.18), transparent 45%), radial-gradient(ellipse at bottom left, rgba(99, 102, 241, 0.22), transparent 50%), linear-gradient(160deg, #10182a 0%, #0b1220 55%, #121a2e 100%);">
+              <div id="preview-slide-stage-container" style="display: flex; flex-direction: column; flex-grow: 1; justify-content: center; width: 100%; overflow: hidden;">
+                <!-- Standard text layout -->
+                <div id="preview-slide-layout-bullets" class="slide-layout" style="display: flex; gap: 24px; align-items: center; width: 100%; flex-grow: 1; overflow: hidden;">
+                  <div style="flex: 1.2; display: flex; flex-direction: column; justify-content: center; text-align: left; overflow: hidden;">
+                    <p class="slide-stage-eyebrow" id="preview-slide-stage-eyebrow" style="margin: 0; font-size: 0.85rem; color: var(--accent-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Präsentationsfolie</p>
+                    <h3 id="preview-slide-stage-title" style="margin: 6px 0 12px 0; font-size: clamp(1.4rem, 2.2vw, 2.0rem); line-height: 1.25; color: #fff; font-weight: 700;">Folie</h3>
+                    <ul id="preview-slide-stage-bullets" style="margin: 0; padding-left: 1.5rem; line-height: 1.8; font-size: 1.15rem; color: var(--text-primary); display: flex; flex-direction: column; gap: 8px;"></ul>
+                  </div>
+                  <div id="preview-slide-stage-img-wrapper" class="glass-card" style="flex: 0.9; max-width: 400px; aspect-ratio: 16/9; overflow: hidden; display: none; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); padding: 0; flex-shrink: 0; box-shadow: 0 8px 30px rgba(0,0,0,0.4);">
+                    <img id="preview-slide-stage-image" src="" alt="Illustration" style="width: 100%; height: 100%; object-fit: cover;">
+                  </div>
+                </div>
+
+                <!-- Mermaid diagram layout -->
+                <div id="preview-slide-layout-mermaid" class="slide-layout hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; overflow: hidden;">
+                  <h3 id="preview-slide-stage-mermaid-title" style="color: #fff; margin: 0 0 16px 0; text-align: center; font-size: clamp(1.4rem, 2.2vw, 2.0rem); font-weight: 700;">Diagramm</h3>
+                  <div id="preview-slide-stage-mermaid-container" style="width: 100%; max-height: 320px; overflow: auto; display: flex; justify-content: center; background: rgba(0,0,0,0.15); border-radius: 8px; padding: 12px; border: 1px solid rgba(255,255,255,0.04);"></div>
+                </div>
+
+                <!-- Full-bleed PowerPoint image (1:1 import) -->
+                <div id="preview-slide-layout-image" class="slide-layout slide-layout-image hidden" style="width: 100%; height: 100%; flex-grow: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #000; margin: 0; padding: 0;">
+                  <img id="preview-slide-stage-full-image" src="" alt="PowerPoint-Folie" style="width: 100%; height: 100%; object-fit: contain; display: block;">
+                </div>
+
+                <!-- Code layout -->
+                <div id="preview-slide-layout-code" class="slide-layout hidden" style="width: 100%; display: flex; gap: 24px; align-items: stretch; text-align: left; flex-grow: 1; overflow: hidden;">
+                  <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; overflow: hidden;">
+                    <h3 id="preview-slide-stage-code-title" style="color: #fff; margin: 0 0 12px 0; font-size: clamp(1.4rem, 2.2vw, 2.0rem); font-weight: 700;">Code-Beispiel</h3>
+                    <ul id="preview-slide-stage-code-bullets" style="margin: 0; padding-left: 1.5rem; line-height: 1.7; font-size: 1.05rem; color: var(--text-primary); display: flex; flex-direction: column; gap: 8px;"></ul>
+                  </div>
+                  <div class="glass-card" style="flex: 1.3; display: flex; flex-direction: column; background: #070913; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); font-family: monospace; overflow: hidden; text-align: left; box-shadow: 0 8px 30px rgba(0,0,0,0.4);">
+                    <div style="background: rgba(255,255,255,0.03); padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.8rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                      <span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+                      <span style="width: 8px; height: 8px; border-radius: 50%; background: #eab308; display: inline-block;"></span>
+                      <span style="width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>
+                      <span id="preview-slide-stage-code-filename" style="margin-left: 8px; font-family: 'Outfit', sans-serif; color: #fff; font-weight: 600;">code</span>
+                    </div>
+                    <pre style="margin: 0; padding: 16px; overflow: auto; font-size: 0.95rem; color: #a78bfa; flex-grow: 1; line-height: 1.5;"><code id="preview-slide-stage-code-block"></code></pre>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Right: Teleprompter Script -->
+        <div class="glass-card" style="padding: 16px; display: flex; flex-direction: column; gap: 10px; background: rgba(255,255,255,0.01); overflow: hidden;">
+          <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-primary); display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+            <i data-lucide="mic" style="width: 16px; height: 16px;"></i> Gesprochener Text (Sprecherskript)
+          </div>
+          <div id="preview-slide-script-text" style="flex-grow: 1; font-size: 0.9rem; line-height: 1.6; color: var(--text-primary); overflow-y: auto; padding: 12px; background: rgba(0,0,0,0.25); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap; height: 100%; text-align: left;">
+            <!-- Script will be injected here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation controls at bottom of preview modal -->
+      <div style="padding: 16px 24px; background: rgba(255, 255, 255, 0.02); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; border-top: 1px solid var(--glass-border);">
+        <button class="btn btn-secondary btn-sm" onclick="previewPrevSlide()" style="width: auto; margin: 0;"><i data-lucide="chevron-left"></i> Zurück</button>
+        <span id="preview-slide-counter" style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">Folie 1 von 1</span>
+        <button class="btn btn-secondary btn-sm" onclick="previewNextSlide()" style="width: auto; margin: 0;">Weiter <i data-lucide="chevron-right"></i></button>
+      </div>
+    </div>
+  </div>
+
+
   <!-- JS Scripts -->
-  <script src="js/app.js?v=10"></script>
+  <script src="js/app.js?v=12"></script>
 </body>
+
 </html>

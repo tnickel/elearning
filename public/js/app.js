@@ -139,6 +139,9 @@ function setupEventListeners() {
   // Admin: Test ElevenLabs Key button
   document.getElementById('btn-test-elevenlabs').addEventListener('click', handleTestElevenLabs);
 
+  // Admin: Test MiniMax Key button
+  document.getElementById('btn-test-minimax').addEventListener('click', handleTestMiniMax);
+
   // Admin: Toggle Config Header
   document.getElementById('admin-config-header').addEventListener('click', toggleConfigPanel);
 
@@ -175,7 +178,92 @@ function setupEventListeners() {
   window.addEventListener('mousemove', recordActivity);
   window.addEventListener('keydown', recordActivity);
   window.addEventListener('scroll', recordActivity);
+
+  // Admin: PPTX Drag and Drop Import
+  const dropzone = document.getElementById('pptx-dropzone');
+  const fileInput = document.getElementById('pptx-file-input');
+
+  if (dropzone && fileInput) {
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handlePptxUpload(e.target.files[0]);
+      }
+    });
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.style.borderColor = 'var(--accent-primary)';
+      dropzone.style.background = 'rgba(139, 92, 246, 0.08)';
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.style.borderColor = 'rgba(139, 92, 246, 0.3)';
+      dropzone.style.background = 'rgba(139, 92, 246, 0.02)';
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.style.borderColor = 'rgba(139, 92, 246, 0.3)';
+      dropzone.style.background = 'rgba(139, 92, 246, 0.02)';
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handlePptxUpload(e.dataTransfer.files[0]);
+      }
+    });
+  }
 }
+
+async function handlePptxUpload(file) {
+  if (!file.name.endsWith('.pptx')) {
+    alert('Bitte lade eine PowerPoint-Datei mit der Endung .pptx hoch.');
+    return;
+  }
+
+  const dropzoneText = document.getElementById('pptx-dropzone-text');
+  const originalText = dropzoneText.textContent;
+  dropzoneText.textContent = `Importiere "${file.name}" (1:1-Export, kann 1–3 Min dauern)…`;
+  
+  try {
+    const response = await fetch(`/api/courses/import-pptx?filename=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${state.token}`
+      },
+      body: file
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      let message = 'Import fehlgeschlagen';
+      try {
+        const errJson = JSON.parse(errText);
+        message = errJson.error || message;
+      } catch (pe) {
+        message = errText || message;
+      }
+      throw new Error(message);
+    }
+
+    const result = await response.json();
+    alert(`Erfolgreich! Der Kurs "${result.topic}" wurde mit ${result.slideCount || '?'} Folien 1:1 importiert.\n\nÖffne den Folien-Wizard, um Sprechtexte und Vertonung zu bearbeiten.`);
+    if (result.courseId) {
+      openPptxStudio(result.courseId);
+    } else {
+      loadAdminDashboard();
+    }
+    
+    // Reload course tables
+    loadAdminDashboard();
+  } catch (err) {
+    console.error('Pptx upload error:', err);
+    alert(`Fehler beim PowerPoint-Import: ${err.message}`);
+  } finally {
+    dropzoneText.textContent = originalText;
+    document.getElementById('pptx-file-input').value = ''; // Reset file input
+  }
+}
+
 
 // Authentication
 async function handleLogin(e) {
@@ -623,7 +711,11 @@ async function loadAdminDashboard() {
       return;
     }
     const modalAfterFetch = document.getElementById('wizard-modal');
+    const pptxStudio = document.getElementById('pptx-studio-modal');
     if (modalAfterFetch && !modalAfterFetch.classList.contains('hidden')) {
+      return;
+    }
+    if (pptxStudio && !pptxStudio.classList.contains('hidden')) {
       return;
     }
     
@@ -634,10 +726,26 @@ async function loadAdminDashboard() {
     sessionSelector.innerHTML = '<option value="">Wähle eine Session zum Verifizieren...</option>';
 
     if (courses.length === 0) {
-      tableBody.innerHTML = '<tr><td colspan="4">Keine Kurse vorhanden. Erstelle oben deinen ersten Kurs!</td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="5">Keine Kurse vorhanden. Erstelle oben deinen ersten Kurs!</td></tr>';
     } else {
       courses.forEach(course => {
         const row = document.createElement('tr');
+        const isPptx = course.isPptx || course.progress?.source === 'pptx';
+        const pipe = course.pipeline || {};
+
+        const checkItem = (ok, label) => `
+          <span class="pipeline-check ${ok ? 'ok' : 'missing'}" title="${label}">
+            <i data-lucide="${ok ? 'check-circle-2' : 'circle'}"></i>
+            <span>${label}</span>
+          </span>`;
+
+        const pipelineCell = isPptx
+          ? `<div class="pipeline-checks">
+              ${checkItem(!!pipe.slidesReady, 'Folien')}
+              ${checkItem(!!pipe.narrationsReady, 'Sprechtext')}
+              ${checkItem(!!pipe.audioReady, 'Vertonung')}
+            </div>`
+          : '<span style="color:var(--text-secondary);font-size:0.8rem;">—</span>';
         
         let statusLabels = '';
         if (course.status === 'generating') {
@@ -661,18 +769,22 @@ async function loadAdminDashboard() {
           }[course.status];
         }
 
+        const openBtn = isPptx
+          ? `<button class="btn btn-primary btn-sm" onclick="openPptxStudio('${course.id}')"><i data-lucide="presentation"></i> Folien-Wizard</button>`
+          : `<button class="btn btn-secondary btn-sm" onclick="openWizard('${course.id}', '${course.topic.replace(/'/g, "\\'")}', '${course.duration || ''}')"><i data-lucide="edit-3"></i> Wizard</button>`;
+
         let actionBtn = '';
         if (course.status === 'curriculum_draft' || course.status === 'content_draft') {
           actionBtn = `
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-sm" onclick="openWizard('${course.id}', '${course.topic.replace(/'/g, "\\'")}', '${course.duration}')"><i data-lucide="edit-3"></i> Wizard bearbeiten</button>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              ${openBtn}
               <button class="btn btn-sm" style="background:#dc262620; color:#ef4444; border:1px solid #dc262640;" onclick="handleDeleteCourse('${course.id}')"><i data-lucide="trash-2"></i> Löschen</button>
             </div>
           `;
         } else if (course.status === 'pending_approval') {
           actionBtn = `
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-sm" onclick="openWizard('${course.id}', '${course.topic.replace(/'/g, "\\'")}', '${course.duration}')"><i data-lucide="edit-3"></i> Wizard</button>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              ${openBtn}
               <button class="btn btn-primary btn-sm" onclick="handleApproveCourse('${course.id}')"><i data-lucide="check-square"></i> Freigeben</button>
               <button class="btn btn-sm" style="background:#dc262620; color:#ef4444; border:1px solid #dc262640;" onclick="handleDeleteCourse('${course.id}')"><i data-lucide="trash-2"></i> Löschen</button>
             </div>
@@ -683,9 +795,9 @@ async function loadAdminDashboard() {
           `;
         } else {
           actionBtn = `
-            <div style="display: flex; gap: 8px; align-items: center;">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
               ${course.status === 'active' ? '<span class="badge student">Freigegeben</span>' : ''}
-              <button class="btn btn-secondary btn-sm" onclick="openWizard('${course.id}', '${course.topic.replace(/'/g, "\\'")}', '${course.duration}')"><i data-lucide="edit-3"></i> Inhalte nachziehen</button>
+              ${openBtn}
               <button class="btn btn-sm" style="background:#dc262620; color:#ef4444; border:1px solid #dc262640;" onclick="handleDeleteCourse('${course.id}')"><i data-lucide="trash-2"></i> Löschen</button>
             </div>
           `;
@@ -693,6 +805,7 @@ async function loadAdminDashboard() {
 
         row.innerHTML = `
           <td><strong>${course.topic}</strong></td>
+          <td>${pipelineCell}</td>
           <td>${statusLabels}</td>
           <td>${new Date(course.createdAt).toLocaleString()}</td>
           <td>${actionBtn}</td>
@@ -707,7 +820,7 @@ async function loadAdminDashboard() {
       const config = await apiCall('/admin/config');
       document.getElementById('cfg-generate-video').value = config.GENERATE_VIDEO || 'false';
       document.getElementById('cfg-video-provider').value = config.VIDEO_PROVIDER || 'elevenlabs';
-      document.getElementById('cfg-elevenlabs-tts-only').value = config.ELEVENLABS_TTS_ONLY || 'true';
+      document.getElementById('cfg-tts-provider').value = config.TTS_PROVIDER || 'elevenlabs';
       document.getElementById('cfg-llm-provider').value = config.LLM_PROVIDER || 'openrouter';
       document.getElementById('cfg-openrouter-model').value = config.OPENROUTER_MODEL || 'google/gemini-2.5-pro';
       document.getElementById('cfg-openrouter-key').value = config.OPENROUTER_API_KEY || '';
@@ -716,8 +829,17 @@ async function loadAdminDashboard() {
       document.getElementById('cfg-vllm-model').value = config.vLLM_MODEL || 'meta-llama/Meta-Llama-3-8B-Instruct';
       document.getElementById('cfg-elevenlabs-key').value = config.ELEVENLABS_API_KEY || '';
       document.getElementById('cfg-elevenlabs-voice').value = config.ELEVENLABS_VOICE_ID || '';
+      document.getElementById('cfg-minimax-key').value = config.MINIMAX_API_KEY || '';
+      document.getElementById('cfg-minimax-group').value = config.MINIMAX_GROUP_ID || '';
+      document.getElementById('cfg-minimax-voice').value = config.MINIMAX_VOICE_ID || 'male-qn-qingse';
+      document.getElementById('cfg-minimax-model').value = config.MINIMAX_MODEL || 'speech-02-hd';
       document.getElementById('cfg-heygen-url').value = config.HEYGEN_API_URL || 'https://api.heygen.com';
       document.getElementById('cfg-heygen-key').value = config.HEYGEN_API_KEY || '';
+
+      // Set initial styles for the active TTS card
+      setTimeout(() => {
+        onTtsProviderChange();
+      }, 0);
     }
     
     // Load some mock/real session ids into the drop-down selector
@@ -778,6 +900,322 @@ async function handleApproveCourse(courseId) {
     alert('Fehler beim Freigeben des Kurses: ' + err.message);
   }
 }
+
+async function handleGenerateNarrations(courseId) {
+  // Legacy entry – redirect into Folien-Wizard
+  openPptxStudio(courseId);
+}
+
+/* ==================== PPTX FOLIEN STUDIO ==================== */
+const pptxStudio = {
+  courseId: null,
+  slides: [],
+  index: 0,
+  pipeline: null,
+  topic: '',
+  dirty: false,
+  busy: false,
+};
+
+async function openPptxStudio(courseId) {
+  pptxStudio.courseId = courseId;
+  pptxStudio.index = 0;
+  pptxStudio.dirty = false;
+  const modal = document.getElementById('pptx-studio-modal');
+  modal.classList.remove('hidden');
+  document.getElementById('pptx-studio-batch-status').textContent = 'Lade Folien…';
+  await pptxReloadStudio();
+  lucide.createIcons();
+}
+
+function closePptxStudio() {
+  if (pptxStudio.dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return;
+  document.getElementById('pptx-studio-modal').classList.add('hidden');
+  pptxStudio.courseId = null;
+  pptxStudio.slides = [];
+  loadAdminDashboard();
+}
+
+async function pptxReloadStudio() {
+  if (!pptxStudio.courseId) return;
+  try {
+    const data = await apiCall(`/courses/${pptxStudio.courseId}/pptx-studio`);
+    pptxStudio.slides = data.slides || [];
+    pptxStudio.pipeline = data.pipeline;
+    pptxStudio.topic = data.course?.topic || '';
+    document.getElementById('pptx-studio-title').innerHTML =
+      `<i data-lucide="presentation"></i> ${pptxStudio.topic}`;
+    pptxRenderPipeline(data.pipeline);
+    pptxRenderThumbs();
+    if (pptxStudio.index >= pptxStudio.slides.length) {
+      pptxStudio.index = Math.max(0, pptxStudio.slides.length - 1);
+    }
+    pptxShowSlide(pptxStudio.index);
+    document.getElementById('pptx-studio-batch-status').textContent =
+      `${pptxStudio.slides.length} Folien · ${data.pipeline?.narrationsDone || 0} Texte · ${data.pipeline?.audioDone || 0} Vertonungen`;
+    lucide.createIcons();
+  } catch (err) {
+    document.getElementById('pptx-studio-batch-status').textContent = 'Fehler: ' + err.message;
+  }
+}
+
+function pptxRenderPipeline(pipe) {
+  const el = document.getElementById('pptx-studio-pipeline');
+  if (!el || !pipe) {
+    if (el) el.innerHTML = '';
+    return;
+  }
+  const item = (ok, label) =>
+    `<span class="pipeline-check ${ok ? 'ok' : 'missing'}"><i data-lucide="${ok ? 'check-circle-2' : 'circle'}"></i><span>${label}</span></span>`;
+  el.innerHTML = [
+    item(!!pipe.slidesReady, 'Folien'),
+    item(!!pipe.narrationsReady, 'Sprechtext'),
+    item(!!pipe.audioReady, 'Vertonung'),
+  ].join('');
+}
+
+function pptxRenderThumbs() {
+  const rail = document.getElementById('pptx-thumb-rail');
+  rail.innerHTML = pptxStudio.slides.map((s, i) => `
+    <button type="button" class="pptx-thumb ${i === pptxStudio.index ? 'active' : ''}" onclick="pptxSelectSlide(${i})" title="${(s.title || '').replace(/"/g, '&quot;')}">
+      <span class="pptx-thumb-num">${i + 1}</span>
+      <img src="${s.image_url}" alt="Folie ${i + 1}" loading="lazy" />
+      <div class="pptx-thumb-badges">
+        <span class="${s.hasNotes ? 'ok' : 'miss'}" title="Sprechtext"><i data-lucide="${s.hasNotes ? 'check' : 'type'}"></i></span>
+        <span class="${s.hasAudio ? 'ok' : 'miss'}" title="Vertonung"><i data-lucide="${s.hasAudio ? 'check' : 'volume-2'}"></i></span>
+      </div>
+    </button>
+  `).join('');
+}
+
+function pptxShowSlide(idx) {
+  if (!pptxStudio.slides.length) {
+    document.getElementById('pptx-stage-img').classList.add('hidden');
+    document.getElementById('pptx-stage-empty').classList.remove('hidden');
+    return;
+  }
+  pptxStudio.index = idx;
+  pptxStudio.dirty = false;
+  const s = pptxStudio.slides[idx];
+  const img = document.getElementById('pptx-stage-img');
+  img.classList.remove('hidden');
+  document.getElementById('pptx-stage-empty').classList.add('hidden');
+  img.src = s.image_url;
+  document.getElementById('pptx-slide-title').value = s.title || '';
+  document.getElementById('pptx-slide-notes').value = s.speaker_notes || '';
+  document.getElementById('pptx-slide-counter').textContent = `Folie ${idx + 1} / ${pptxStudio.slides.length}`;
+
+  const audioBox = document.getElementById('pptx-audio-box');
+  const player = document.getElementById('pptx-audio-player');
+  if (s.audio_url) {
+    audioBox.classList.remove('hidden');
+    player.src = s.audio_url;
+  } else {
+    audioBox.classList.add('hidden');
+    player.removeAttribute('src');
+  }
+
+  document.getElementById('pptx-editor-hint').textContent = s.hasNotes
+    ? (s.hasAudio ? 'Sprechtext und Vertonung vorhanden.' : 'Sprechtext vorhanden – noch nicht vertont.')
+    : 'Noch kein Sprechtext – generieren oder manuell eingeben.';
+
+  pptxRenderThumbs();
+  lucide.createIcons();
+}
+
+function pptxSelectSlide(idx) {
+  if (pptxStudio.dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return;
+  pptxShowSlide(idx);
+}
+
+function pptxPrevSlide() {
+  if (pptxStudio.index > 0) pptxSelectSlide(pptxStudio.index - 1);
+}
+
+function pptxNextSlide() {
+  if (pptxStudio.index < pptxStudio.slides.length - 1) pptxSelectSlide(pptxStudio.index + 1);
+}
+
+function pptxMarkDirty() {
+  pptxStudio.dirty = true;
+}
+
+async function pptxSaveSlide() {
+  const s = pptxStudio.slides[pptxStudio.index];
+  if (!s) return;
+  const speaker_notes = document.getElementById('pptx-slide-notes').value;
+  const title = document.getElementById('pptx-slide-title').value;
+  try {
+    document.getElementById('pptx-editor-hint').textContent = 'Speichere…';
+    const res = await apiCall(`/courses/${pptxStudio.courseId}/slides/${s.lessonId}/${s.slideIndex}`, {
+      method: 'PUT',
+      body: JSON.stringify({ speaker_notes, title }),
+    });
+    s.speaker_notes = speaker_notes;
+    s.title = title;
+    s.hasNotes = !!(speaker_notes && speaker_notes.trim());
+    pptxStudio.pipeline = res.pipeline || pptxStudio.pipeline;
+    pptxStudio.dirty = false;
+    pptxRenderPipeline(pptxStudio.pipeline);
+    pptxRenderThumbs();
+    document.getElementById('pptx-editor-hint').textContent = 'Gespeichert.';
+    lucide.createIcons();
+  } catch (err) {
+    document.getElementById('pptx-editor-hint').textContent = 'Fehler: ' + err.message;
+  }
+}
+
+async function pptxNarrateCurrent() {
+  const s = pptxStudio.slides[pptxStudio.index];
+  if (!s || pptxStudio.busy) return;
+  pptxStudio.busy = true;
+  const btn = document.getElementById('pptx-btn-narrate');
+  btn.disabled = true;
+  btn.innerHTML = '<i data-lucide="refresh-cw" class="spin"></i> Generiere…';
+  lucide.createIcons();
+  try {
+    // Save manual edits first if any
+    if (pptxStudio.dirty) await pptxSaveSlide();
+    const res = await apiCall(`/courses/${pptxStudio.courseId}/slides/${s.lessonId}/${s.slideIndex}/narrate`, {
+      method: 'POST',
+    });
+    s.speaker_notes = res.speaker_notes || '';
+    s.hasNotes = !!(s.speaker_notes && s.speaker_notes.trim());
+    document.getElementById('pptx-slide-notes').value = s.speaker_notes;
+    pptxStudio.pipeline = res.pipeline || pptxStudio.pipeline;
+    pptxRenderPipeline(pptxStudio.pipeline);
+    pptxRenderThumbs();
+    document.getElementById('pptx-editor-hint').textContent = 'Sprechtext generiert.';
+  } catch (err) {
+    document.getElementById('pptx-editor-hint').textContent = 'Fehler: ' + err.message;
+    alert('Textgenerierung fehlgeschlagen: ' + err.message);
+  } finally {
+    pptxStudio.busy = false;
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="sparkles"></i> Text generieren';
+    lucide.createIcons();
+  }
+}
+
+async function pptxTtsCurrent() {
+  const s = pptxStudio.slides[pptxStudio.index];
+  if (!s || pptxStudio.busy) return;
+  const notes = document.getElementById('pptx-slide-notes').value.trim();
+  if (!notes) {
+    alert('Bitte zuerst einen Sprechtext eingeben oder generieren.');
+    return;
+  }
+  pptxStudio.busy = true;
+  const btn = document.getElementById('pptx-btn-tts');
+  btn.disabled = true;
+  btn.innerHTML = '<i data-lucide="refresh-cw" class="spin"></i> Vertone…';
+  lucide.createIcons();
+  try {
+    if (pptxStudio.dirty || notes !== (s.speaker_notes || '').trim()) {
+      await pptxSaveSlide();
+    }
+    const res = await apiCall(`/courses/${pptxStudio.courseId}/slides/${s.lessonId}/${s.slideIndex}/tts`, {
+      method: 'POST',
+    });
+    s.audio_url = res.audio_url;
+    s.hasAudio = true;
+    pptxStudio.pipeline = res.pipeline || pptxStudio.pipeline;
+    pptxRenderPipeline(pptxStudio.pipeline);
+    pptxShowSlide(pptxStudio.index);
+    document.getElementById('pptx-editor-hint').textContent = 'Vertonung fertig.';
+  } catch (err) {
+    document.getElementById('pptx-editor-hint').textContent = 'Fehler: ' + err.message;
+    alert('Vertonung fehlgeschlagen: ' + err.message);
+  } finally {
+    pptxStudio.busy = false;
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="volume-2"></i> Vertonen';
+    lucide.createIcons();
+  }
+}
+
+async function pptxGenerateAllNotes() {
+  if (!pptxStudio.courseId) return;
+  if (!confirm('Sprechtexte für alle fehlenden Folien per KI generieren? Das kann einige Minuten dauern.')) return;
+  const status = document.getElementById('pptx-studio-batch-status');
+  try {
+    status.textContent = 'Starte Batch-Sprechtexte…';
+    const res = await apiCall(`/courses/${pptxStudio.courseId}/generate-narrations`, {
+      method: 'POST',
+      body: JSON.stringify({ onlyMissing: true }),
+    });
+    status.textContent = `Generiere ${res.total || '?'} Texte… (Fortschritt in der Liste)`;
+    pptxPollUntilIdle();
+  } catch (err) {
+    status.textContent = 'Fehler: ' + err.message;
+    alert(err.message);
+  }
+}
+
+async function pptxGenerateAllTts() {
+  if (!pptxStudio.courseId) return;
+  if (!confirm('Alle Folien mit Sprechtext vertonen?')) return;
+  const status = document.getElementById('pptx-studio-batch-status');
+  try {
+    status.textContent = 'Starte Batch-Vertonung…';
+    const res = await apiCall(`/courses/${pptxStudio.courseId}/generate-tts`, {
+      method: 'POST',
+      body: JSON.stringify({ onlyMissing: true }),
+    });
+    status.textContent = `Vertone ${res.total || '?'} Folien…`;
+    pptxPollUntilIdle();
+  } catch (err) {
+    status.textContent = 'Fehler: ' + err.message;
+    alert(err.message);
+  }
+}
+
+function pptxPollUntilIdle() {
+  const id = pptxStudio.courseId;
+  let tries = 0;
+  const timer = setInterval(async () => {
+    tries++;
+    try {
+      const data = await apiCall(`/courses/${id}/pptx-studio`);
+      const status = data.course?.status;
+      document.getElementById('pptx-studio-batch-status').textContent =
+        data.course?.progress?.step || 'Arbeite…';
+      if (status !== 'generating' || tries > 120) {
+        clearInterval(timer);
+        if (pptxStudio.courseId === id) {
+          await pptxReloadStudio();
+        }
+      }
+    } catch {
+      if (tries > 5) clearInterval(timer);
+    }
+  }, 2500);
+}
+
+async function pptxApproveIfReady() {
+  if (!pptxStudio.courseId) return;
+  const pipe = pptxStudio.pipeline || {};
+  if (!pipe.narrationsReady) {
+    if (!confirm('Nicht alle Sprechtexte sind fertig. Trotzdem freigeben?')) return;
+  } else if (!pipe.audioReady) {
+    if (!confirm('Nicht alle Folien sind vertont. Trotzdem freigeben?')) return;
+  }
+  try {
+    await apiCall(`/courses/${pptxStudio.courseId}/approve`, { method: 'POST' });
+    alert('Kurs freigegeben!');
+    closePptxStudio();
+  } catch (err) {
+    alert('Freigabe fehlgeschlagen: ' + err.message);
+  }
+}
+
+// Mark dirty on edit
+document.addEventListener('DOMContentLoaded', () => {
+  const notes = document.getElementById('pptx-slide-notes');
+  const title = document.getElementById('pptx-slide-title');
+  if (notes) notes.addEventListener('input', pptxMarkDirty);
+  if (title) title.addEventListener('input', pptxMarkDirty);
+});
 
 async function handleStopCourse(courseId) {
   if (!confirm('Möchtest du die Generierung dieses Kurses wirklich abbrechen?')) return;
@@ -907,7 +1345,7 @@ async function handleSaveConfig(e) {
   const payload = {
     GENERATE_VIDEO: document.getElementById('cfg-generate-video').value,
     VIDEO_PROVIDER: document.getElementById('cfg-video-provider').value,
-    ELEVENLABS_TTS_ONLY: document.getElementById('cfg-elevenlabs-tts-only').value,
+    TTS_PROVIDER: document.getElementById('cfg-tts-provider').value,
     LLM_PROVIDER: document.getElementById('cfg-llm-provider').value,
     OPENROUTER_MODEL: document.getElementById('cfg-openrouter-model').value,
     OPENROUTER_API_KEY: document.getElementById('cfg-openrouter-key').value,
@@ -916,6 +1354,10 @@ async function handleSaveConfig(e) {
     vLLM_MODEL: document.getElementById('cfg-vllm-model').value,
     ELEVENLABS_API_KEY: document.getElementById('cfg-elevenlabs-key').value,
     ELEVENLABS_VOICE_ID: document.getElementById('cfg-elevenlabs-voice').value,
+    MINIMAX_API_KEY: document.getElementById('cfg-minimax-key').value,
+    MINIMAX_GROUP_ID: document.getElementById('cfg-minimax-group').value,
+    MINIMAX_VOICE_ID: document.getElementById('cfg-minimax-voice').value,
+    MINIMAX_MODEL: document.getElementById('cfg-minimax-model').value,
     HEYGEN_API_URL: document.getElementById('cfg-heygen-url').value,
     HEYGEN_API_KEY: document.getElementById('cfg-heygen-key').value,
   };
@@ -1025,9 +1467,93 @@ async function handleTestElevenLabs() {
   }
 }
 
+async function handleTestMiniMax() {
+  const apiKey = document.getElementById('cfg-minimax-key').value;
+  const groupId = document.getElementById('cfg-minimax-group').value;
+  const voiceId = document.getElementById('cfg-minimax-voice').value;
+  const statusDiv = document.getElementById('minimax-test-status');
+  const btn = document.getElementById('btn-test-minimax');
+
+  if (!apiKey || !groupId) {
+    statusDiv.style.color = '#ff6b6b';
+    statusDiv.textContent = 'Bitte Key und Group ID eintragen!';
+    statusDiv.style.display = 'block';
+    return;
+  }
+
+  statusDiv.style.color = '#aaa';
+  statusDiv.textContent = 'Verbindung zu MiniMax wird getestet...';
+  statusDiv.style.display = 'block';
+  btn.disabled = true;
+
+  try {
+    const res = await apiCall('/admin/config/test-minimax', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey, groupId, voiceId }),
+    });
+
+    if (res.success) {
+      statusDiv.style.color = '#51cf66';
+      statusDiv.innerHTML = `<i class="inline-icon" data-lucide="check-circle" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></i> Verbindung erfolgreich! Guthaben: <strong>${res.balance}</strong>`;
+    } else {
+      statusDiv.style.color = '#ff6b6b';
+      statusDiv.textContent = 'Fehler: ' + (res.error || 'Verbindung fehlgeschlagen.');
+    }
+  } catch (err) {
+    statusDiv.style.color = '#ff6b6b';
+    statusDiv.textContent = 'Fehler: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    lucide.createIcons();
+  }
+}
+
+function onTtsProviderChange() {
+  const provider = document.getElementById('cfg-tts-provider').value;
+  const cardEl = document.getElementById('card-elevenlabs');
+  const cardMm = document.getElementById('card-minimax');
+  const badge = document.getElementById('tts-active-badge');
+  const dotEl = document.getElementById('el-active-dot');
+  const dotMm = document.getElementById('mm-active-dot');
+
+  if (!cardEl || !cardMm) return;
+
+  if (provider === 'elevenlabs') {
+    cardEl.style.borderColor = 'rgba(167,139,250,0.5)';
+    cardEl.style.boxShadow = '0 0 10px rgba(167,139,250,0.15)';
+    cardMm.style.borderColor = 'rgba(255,255,255,0.06)';
+    cardMm.style.boxShadow = 'none';
+    if (badge) badge.textContent = 'AKTIV: ElevenLabs';
+    if (dotEl) {
+      dotEl.style.background = '#51cf66';
+      dotEl.style.boxShadow = '0 0 6px #51cf66';
+    }
+    if (dotMm) {
+      dotMm.style.background = 'rgba(255,255,255,0.15)';
+      dotMm.style.boxShadow = 'none';
+    }
+  } else {
+    cardMm.style.borderColor = 'rgba(251,146,60,0.5)';
+    cardMm.style.boxShadow = '0 0 10px rgba(251,146,60,0.15)';
+    cardEl.style.borderColor = 'rgba(255,255,255,0.06)';
+    cardEl.style.boxShadow = 'none';
+    if (badge) badge.textContent = 'AKTIV: MiniMax';
+    if (dotMm) {
+      dotMm.style.background = '#51cf66';
+      dotMm.style.boxShadow = '0 0 6px #51cf66';
+    }
+    if (dotEl) {
+      dotEl.style.background = 'rgba(255,255,255,0.15)';
+      dotEl.style.boxShadow = 'none';
+    }
+  }
+}
+window.onTtsProviderChange = onTtsProviderChange;
+
 async function loadUsageStats() {
   const orEl = document.getElementById('stat-openrouter-usage');
   const elEl = document.getElementById('stat-elevenlabs-usage');
+  const mmEl = document.getElementById('stat-minimax-usage');
   if (!orEl || !elEl) return;
 
   try {
@@ -1037,10 +1563,14 @@ async function loadUsageStats() {
       orEl.innerHTML = `${data.openrouter.usage} <span style="font-size: 0.75rem; font-weight: normal; color: var(--text-secondary);">(${data.openrouter.label})</span>`;
     }
     elEl.textContent = data.elevenlabs.usage;
+    if (mmEl) {
+      mmEl.textContent = data.minimax ? data.minimax.usage : 'Nicht geladen';
+    }
   } catch (err) {
     console.error('Failed to load usage stats:', err);
     orEl.textContent = 'Fehler beim Laden';
     elEl.textContent = 'Fehler beim Laden';
+    if (mmEl) mmEl.textContent = 'Fehler beim Laden';
   }
 }
 
@@ -1419,8 +1949,17 @@ async function wizardSaveStep1(callback = null) {
         const bulletsText = slideInput.nextElementSibling.value;
         const bullets = bulletsText.split('\n').map(b => b.trim()).filter(b => b.length > 0);
 
-        slides[idx] = { title: slideTitle, bullets };
+        // Fetch original slide to preserve other properties (layout, image_url, etc.)
+        const originalLesson = wizardState.curriculumData.lessons.find(l => l.id === lesId);
+        const originalSlide = originalLesson?.contentPayload?.slides?.[idx] || {};
+
+        slides[idx] = {
+          ...originalSlide,
+          title: slideTitle,
+          bullets
+        };
       });
+
 
       lessonsData.push({
         id: lesId,
@@ -1581,7 +2120,13 @@ function wizardSelectLessonForEdit(lessonId) {
   });
 
   panel.innerHTML = `
-    <h4 style="font-size: 1rem; color: #fff; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">"${lesson.title}" bearbeiten</h4>
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 12px;">
+      <h4 style="font-size: 0.95rem; color: #fff; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%;" title="${lesson.title}">"${lesson.title}" bearbeiten</h4>
+      <button class="btn btn-secondary btn-sm" onclick="openSlidePreview('${lessonId}')" style="width: auto; margin: 0; background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.4); color: var(--accent-primary); font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+        <i data-lucide="presentation"></i> Folien-Vorschau
+      </button>
+    </div>
+
     
     <div class="form-group" style="margin-bottom:12px;">
       <label style="font-size:0.75rem; color:var(--text-secondary);">Ausführliche Theorie (Markdown-Text)</label>
@@ -1600,13 +2145,19 @@ function wizardSelectLessonForEdit(lessonId) {
       </div>
     </div>
 
-    <button class="btn btn-primary btn-sm" onclick="wizardSaveLessonEdits('${lessonId}')">
-      Lektionsinhalte speichern <i data-lucide="save"></i>
-    </button>
+    <div style="display: flex; gap: 8px; margin-top: 8px;">
+      <button class="btn btn-primary btn-sm" onclick="wizardSaveLessonEdits('${lessonId}')" style="flex: 1; width: auto; margin: 0;">
+        Speichern <i data-lucide="save"></i>
+      </button>
+      <button class="btn btn-secondary btn-sm" onclick="openSlidePreview('${lessonId}')" style="flex: 1; width: auto; margin: 0; background: rgba(139, 92, 246, 0.1); border-color: rgba(139, 92, 246, 0.3); color: var(--accent-primary);">
+        Folien-Vorschau <i data-lucide="presentation"></i>
+      </button>
+    </div>
   `;
 
   lucide.createIcons();
 }
+
 
 async function wizardSaveLessonEdits(lessonId) {
   const textContent = document.getElementById('wz-les-theory-edit').value;
@@ -1676,7 +2227,8 @@ async function wizardTriggerMediaRendering() {
 // ==================== INTERACTIVE CLASSROOM SLIDES VIEW ====================
 let classroomSlideState = {
   slides: [],
-  currentIndex: 0
+  currentIndex: 0,
+  perSlideAudio: false,
 };
 
 function isAudioOnlyUrl(url) {
@@ -1685,30 +2237,119 @@ function isAudioOnlyUrl(url) {
 }
 
 function renderSlideStage() {
-  const titleEl = document.getElementById('slide-stage-title');
-  const bulletsEl = document.getElementById('slide-stage-bullets');
+  const container = document.getElementById('slide-stage-container');
   const counterEl = document.getElementById('slide-stage-counter');
-  if (!titleEl || !bulletsEl || !counterEl) return;
+  if (!container || !counterEl) return;
 
   const slides = classroomSlideState.slides || [];
   if (slides.length === 0) {
-    titleEl.textContent = state.activeLesson?.title || 'Lektion';
-    bulletsEl.innerHTML = '<li>Keine Folien für diese Lektion vorhanden.</li>';
+    const titleEl = document.getElementById('slide-stage-title');
+    const bulletsEl = document.getElementById('slide-stage-bullets');
+    if (titleEl) titleEl.textContent = state.activeLesson?.title || 'Lektion';
+    if (bulletsEl) bulletsEl.innerHTML = '<li>Keine Folien für diese Lektion vorhanden.</li>';
+    const imgWrapper = document.getElementById('slide-stage-img-wrapper');
+    if (imgWrapper) imgWrapper.style.display = 'none';
     counterEl.textContent = 'Keine Folien';
     return;
   }
 
   const idx = Math.min(classroomSlideState.currentIndex, slides.length - 1);
   const slide = slides[idx];
-  titleEl.textContent = slide.title || `Folie ${idx + 1}`;
-  bulletsEl.innerHTML = '';
-  (slide.bullets || []).forEach((b) => {
-    const li = document.createElement('li');
-    li.textContent = b;
-    bulletsEl.appendChild(li);
-  });
+  const layout = slide.layout || 'bullets';
+
+  // Hide all layout blocks first
+  const bulletsLayout = document.getElementById('slide-layout-bullets');
+  const mermaidLayout = document.getElementById('slide-layout-mermaid');
+  const codeLayout = document.getElementById('slide-layout-code');
+  const imageLayout = document.getElementById('slide-layout-image');
+  const stageEl = document.getElementById('slide-stage');
+
+  if (bulletsLayout) bulletsLayout.classList.add('hidden');
+  if (mermaidLayout) mermaidLayout.classList.add('hidden');
+  if (codeLayout) codeLayout.classList.add('hidden');
+  if (imageLayout) imageLayout.classList.add('hidden');
+  if (stageEl) stageEl.classList.toggle('pptx-image-mode', layout === 'image');
+
+  if (layout === 'image' && (slide.image_url || slide.imageUrl)) {
+    if (imageLayout) {
+      imageLayout.classList.remove('hidden');
+      const fullImg = document.getElementById('slide-stage-full-image');
+      if (fullImg) {
+        fullImg.src = slide.image_url || slide.imageUrl;
+        fullImg.alt = slide.title || `Folie ${idx + 1}`;
+      }
+    }
+  } else if (layout === 'mermaid' && slide.mermaid_code) {
+    // ── MERMAID LAYOUT ───────────────────────────────────────────────────
+    if (mermaidLayout) {
+      mermaidLayout.classList.remove('hidden');
+      document.getElementById('slide-stage-mermaid-title').textContent = slide.title || 'Diagramm';
+      
+      const chartContainer = document.getElementById('slide-stage-mermaid-container');
+      chartContainer.innerHTML = `<pre class="mermaid" id="mermaid-svg-${idx}">${slide.mermaid_code}</pre>`;
+      
+      // Initialize/Render Mermaid
+      setTimeout(() => {
+        try {
+          if (typeof mermaid !== 'undefined') {
+            mermaid.run({
+              nodes: [document.getElementById(`mermaid-svg-${idx}`)]
+            });
+          }
+        } catch (err) {
+          console.error('Mermaid render error:', err);
+          chartContainer.innerHTML = `<div style="color:var(--accent-error); font-size:0.85rem;">[Diagramm-Fehler: Syntax ungültig]</div><pre style="text-align:left; font-size:0.75rem; color:var(--text-secondary); margin-top:8px; white-space:pre-wrap; word-break:break-all;">${slide.mermaid_code}</pre>`;
+        }
+      }, 50);
+    }
+
+  } else if (layout === 'code' && slide.code_snippet) {
+    // ── CODE LAYOUT ──────────────────────────────────────────────────────
+    if (codeLayout) {
+      codeLayout.classList.remove('hidden');
+      document.getElementById('slide-stage-code-title').textContent = slide.title || 'Code-Beispiel';
+      document.getElementById('slide-stage-code-filename').textContent = slide.code_language || 'code';
+      document.getElementById('slide-stage-code-block').innerHTML = highlightCode(slide.code_snippet, slide.code_language);
+      
+      const bulletsEl = document.getElementById('slide-stage-code-bullets');
+      bulletsEl.innerHTML = '';
+      (slide.bullets || []).forEach(b => {
+        const li = document.createElement('li');
+        li.textContent = b;
+        bulletsEl.appendChild(li);
+      });
+    }
+
+  } else {
+    // ── BULLETS LAYOUT (Default) ──────────────────────────────────────────
+    if (bulletsLayout) {
+      bulletsLayout.classList.remove('hidden');
+      document.getElementById('slide-stage-title').textContent = slide.title || `Folie ${idx + 1}`;
+      
+      const bulletsEl = document.getElementById('slide-stage-bullets');
+      bulletsEl.innerHTML = '';
+      (slide.bullets || []).forEach((b) => {
+        const li = document.createElement('li');
+        li.textContent = b;
+        bulletsEl.appendChild(li);
+      });
+
+      const imgWrapper = document.getElementById('slide-stage-img-wrapper');
+      const imgEl = document.getElementById('slide-stage-image');
+      const courseTopic = state.activeCourse ? state.activeCourse.topic : '';
+      const imageUrl = getSlideImageUrl(slide, courseTopic);
+      if (imageUrl) {
+        imgEl.src = imageUrl;
+        imgWrapper.style.display = 'block';
+      } else {
+        imgWrapper.style.display = 'none';
+      }
+    }
+  }
+
   counterEl.textContent = `Folie ${idx + 1} von ${slides.length}`;
 }
+
 
 function syncSlidesToMediaTime(player) {
   const slides = classroomSlideState.slides || [];
@@ -1731,13 +2372,21 @@ function setupLessonMediaPlayer(lesson) {
   player.pause();
   player.removeAttribute('poster');
 
-  const url = lesson.videoUrl || '';
-  const audioOnly = isAudioOnlyUrl(url);
+  const slides = (lesson.contentPayload && lesson.contentPayload.slides) || [];
+  const hasPerSlideAudio = slides.some((s) => s.audio_url && String(s.audio_url).trim());
+  classroomSlideState.perSlideAudio = hasPerSlideAudio;
+
+  const url = hasPerSlideAudio
+    ? (slides.find((s) => s.audio_url)?.audio_url || lesson.videoUrl || '')
+    : (lesson.videoUrl || '');
+  const audioOnly = isAudioOnlyUrl(url) || hasPerSlideAudio;
   container.classList.toggle('audio-mode', audioOnly);
   container.classList.toggle('video-mode', !audioOnly && !!url);
 
   if (mediaLabel) {
-    mediaLabel.textContent = audioOnly ? 'ElevenLabs Audio + Folien' : 'Avatar-Video';
+    mediaLabel.textContent = hasPerSlideAudio
+      ? 'Folien-Vertonung'
+      : (audioOnly ? 'ElevenLabs Audio + Folien' : 'Avatar-Video');
   }
 
   player.removeAttribute('src');
@@ -1752,14 +2401,39 @@ function setupLessonMediaPlayer(lesson) {
   }
 
   player.ontimeupdate = () => {
-    if (audioOnly) syncSlidesToMediaTime(player);
+    if (audioOnly && !classroomSlideState.perSlideAudio) syncSlidesToMediaTime(player);
+  };
+  player.onended = () => {
+    if (classroomSlideState.perSlideAudio) {
+      classroomNextSlide();
+    }
   };
   player.onloadedmetadata = () => {
-    classroomSlideState.currentIndex = 0;
+    if (!classroomSlideState.perSlideAudio) {
+      classroomSlideState.currentIndex = 0;
+    }
     renderSlideStage();
   };
 
   renderSlideStage();
+}
+
+function playCurrentSlideAudio() {
+  const player = document.getElementById('avatar-video-player');
+  if (!player || !classroomSlideState.perSlideAudio) return;
+  const slide = classroomSlideState.slides[classroomSlideState.currentIndex];
+  if (!slide?.audio_url) return;
+  const url = slide.audio_url;
+  const cur = player.currentSrc || '';
+  if (!cur.includes(url.split('?')[0])) {
+    while (player.firstChild) player.removeChild(player.firstChild);
+    const source = document.createElement('source');
+    source.src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    source.type = 'audio/mpeg';
+    player.appendChild(source);
+    player.load();
+  }
+  player.play().catch(() => {});
 }
 
 function classroomPrevSlide() {
@@ -1767,6 +2441,7 @@ function classroomPrevSlide() {
     classroomSlideState.currentIndex--;
     renderActiveSlide();
     renderSlideStage();
+    if (classroomSlideState.perSlideAudio) playCurrentSlideAudio();
   }
 }
 
@@ -1775,6 +2450,7 @@ function classroomNextSlide() {
     classroomSlideState.currentIndex++;
     renderActiveSlide();
     renderSlideStage();
+    if (classroomSlideState.perSlideAudio) playCurrentSlideAudio();
   }
 }
 
@@ -1806,9 +2482,248 @@ function renderActiveSlide() {
 
 // Slides initialized via classroomSlideState in selectLesson function
 
+// Slides initialized via classroomSlideState in selectLesson function
+
+// Slide Previewer State & Functions
+let previewSlideState = {
+  slides: [],
+  currentIndex: 0,
+  speechScript: ''
+};
+
+function openSlidePreview(lessonId) {
+  const slides = [];
+  const titleInputs = document.querySelectorAll(`.wz-slide-title-input[data-lesson-id="${lessonId}"]`);
+  
+  titleInputs.forEach(titleIn => {
+    const sIdx = parseInt(titleIn.dataset.slideIndex);
+    const bulletsIn = document.querySelector(`.wz-slide-bullets-input[data-lesson-id="${lessonId}"][data-slide-index="${sIdx}"]`);
+    
+    const title = titleIn.value;
+    const bullets = bulletsIn ? bulletsIn.value.split('\n').map(b => b.trim()).filter(b => b) : [];
+    
+    const originalLesson = wizardState.curriculumData.lessons.find(l => l.id === lessonId);
+    const originalSlide = originalLesson?.contentPayload?.slides?.[sIdx] || {};
+
+    slides[sIdx] = {
+      title,
+      bullets,
+      layout: originalSlide.layout || 'bullets',
+      mermaid_code: originalSlide.mermaid_code || '',
+      code_snippet: originalSlide.code_snippet || '',
+      code_language: originalSlide.code_language || 'javascript',
+      image_url: originalSlide.image_url || '',
+      speaker_notes: originalSlide.speaker_notes || '',
+      hide_image: originalSlide.hide_image === true
+    };
+  });
+
+  if (slides.length === 0) {
+    const originalLesson = wizardState.curriculumData.lessons.find(l => l.id === lessonId);
+    if (originalLesson && originalLesson.contentPayload && originalLesson.contentPayload.slides) {
+      previewSlideState.slides = originalLesson.contentPayload.slides;
+    } else {
+      previewSlideState.slides = [];
+    }
+  } else {
+    previewSlideState.slides = slides.filter(Boolean);
+  }
+
+  // Fetch the speech script from the active editor DOM
+  const scriptText = document.getElementById('wz-les-script-edit')?.value || '';
+  previewSlideState.speechScript = scriptText;
+
+  previewSlideState.currentIndex = 0;
+  
+  const modal = document.getElementById('slide-preview-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    renderPreviewSlide();
+  }
+}
+
+function closeSlidePreview() {
+  const modal = document.getElementById('slide-preview-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function previewPrevSlide() {
+  if (previewSlideState.currentIndex > 0) {
+    previewSlideState.currentIndex--;
+    renderPreviewSlide();
+  }
+}
+
+function previewNextSlide() {
+  if (previewSlideState.currentIndex < previewSlideState.slides.length - 1) {
+    previewSlideState.currentIndex++;
+    renderPreviewSlide();
+  }
+}
+
+function renderPreviewSlide() {
+  const container = document.getElementById('preview-slide-stage-container');
+  const counterEl = document.getElementById('preview-slide-counter');
+  if (!container || !counterEl) return;
+
+  const slides = previewSlideState.slides || [];
+  const idx = Math.min(previewSlideState.currentIndex, slides.length - 1);
+
+  // Render current speech script in the sidebar card (prefer per-slide speaker_notes)
+  const scriptTextEl = document.getElementById('preview-slide-script-text');
+  if (scriptTextEl) {
+    const totalSlides = slides.length || 1;
+    const slide = slides[idx];
+    const currentSlideScript =
+      (slide && slide.speaker_notes && String(slide.speaker_notes).trim()) ||
+      getSlideSpeechScript(previewSlideState.speechScript, idx, totalSlides);
+    scriptTextEl.innerHTML = currentSlideScript
+      ? currentSlideScript
+          .split('\n\n')
+          .map(p => `<p style="margin-bottom: 12px; line-height: 1.6; text-align: left;">${p}</p>`)
+          .join('')
+      : '<p style="color: var(--text-secondary); text-align: center; margin-top: 20px;">Kein Sprecherskript für diese Folie vorhanden.</p>';
+  }
+
+
+  if (slides.length === 0) {
+    const titleEl = document.getElementById('preview-slide-stage-title');
+    const bulletsEl = document.getElementById('preview-slide-stage-bullets');
+    if (titleEl) titleEl.textContent = 'Keine Folien';
+    if (bulletsEl) bulletsEl.innerHTML = '<li>Keine Folien vorhanden.</li>';
+    const imgWrapper = document.getElementById('preview-slide-stage-img-wrapper');
+    if (imgWrapper) imgWrapper.style.display = 'none';
+    counterEl.textContent = 'Folie 0 von 0';
+    return;
+  }
+
+  const slide = slides[idx];
+  const layout = slide.layout || 'bullets';
+
+  const bulletsLayout = document.getElementById('preview-slide-layout-bullets');
+  const mermaidLayout = document.getElementById('preview-slide-layout-mermaid');
+  const codeLayout = document.getElementById('preview-slide-layout-code');
+  const imageLayout = document.getElementById('preview-slide-layout-image');
+  const previewStage = document.getElementById('preview-slide-stage');
+
+  if (bulletsLayout) bulletsLayout.classList.add('hidden');
+  if (mermaidLayout) mermaidLayout.classList.add('hidden');
+  if (codeLayout) codeLayout.classList.add('hidden');
+  if (imageLayout) imageLayout.classList.add('hidden');
+  if (previewStage) previewStage.classList.toggle('pptx-image-mode', layout === 'image');
+
+  if (layout === 'image' && (slide.image_url || slide.imageUrl)) {
+    if (imageLayout) {
+      imageLayout.classList.remove('hidden');
+      const fullImg = document.getElementById('preview-slide-stage-full-image');
+      if (fullImg) {
+        fullImg.src = slide.image_url || slide.imageUrl;
+        fullImg.alt = slide.title || `Folie ${idx + 1}`;
+      }
+    }
+  } else if (layout === 'mermaid' && slide.mermaid_code) {
+    if (mermaidLayout) {
+      mermaidLayout.classList.remove('hidden');
+      document.getElementById('preview-slide-stage-mermaid-title').textContent = slide.title || 'Diagramm';
+      
+      const chartContainer = document.getElementById('preview-slide-stage-mermaid-container');
+      chartContainer.innerHTML = `<pre class="mermaid" id="preview-mermaid-svg-${idx}">${slide.mermaid_code}</pre>`;
+      
+      setTimeout(() => {
+        try {
+          if (typeof mermaid !== 'undefined') {
+            mermaid.run({
+              nodes: [document.getElementById(`preview-mermaid-svg-${idx}`)]
+            });
+          }
+        } catch (err) {
+          console.error('Mermaid preview render error:', err);
+          chartContainer.innerHTML = `<div style="color:var(--accent-error); font-size:0.85rem;">[Diagramm-Fehler: Syntax ungültig]</div><pre style="text-align:left; font-size:0.75rem; color:var(--text-secondary); margin-top:8px; white-space:pre-wrap; word-break:break-all;">${slide.mermaid_code}</pre>`;
+        }
+      }, 50);
+    }
+
+  } else if (layout === 'code' && slide.code_snippet) {
+    if (codeLayout) {
+      codeLayout.classList.remove('hidden');
+      document.getElementById('preview-slide-stage-code-title').textContent = slide.title || 'Code-Beispiel';
+      document.getElementById('preview-slide-stage-code-filename').textContent = slide.code_language || 'code';
+      document.getElementById('preview-slide-stage-code-block').innerHTML = highlightCode(slide.code_snippet, slide.code_language);
+      
+      const bulletsEl = document.getElementById('preview-slide-stage-code-bullets');
+      bulletsEl.innerHTML = '';
+      (slide.bullets || []).forEach(b => {
+        const li = document.createElement('li');
+        li.textContent = b;
+        bulletsEl.appendChild(li);
+      });
+    }
+
+  } else {
+    if (bulletsLayout) {
+      bulletsLayout.classList.remove('hidden');
+      document.getElementById('preview-slide-stage-title').textContent = slide.title || `Folie ${idx + 1}`;
+      
+      const bulletsEl = document.getElementById('preview-slide-stage-bullets');
+      bulletsEl.innerHTML = '';
+      (slide.bullets || []).forEach((b) => {
+        const li = document.createElement('li');
+        li.textContent = b;
+        bulletsEl.appendChild(li);
+      });
+
+      const imgWrapper = document.getElementById('preview-slide-stage-img-wrapper');
+      const imgEl = document.getElementById('preview-slide-stage-image');
+      const courseTopic = wizardState.topic || '';
+      const imageUrl = getSlideImageUrl(slide, courseTopic);
+      if (imageUrl) {
+        imgEl.src = imageUrl;
+        imgWrapper.style.display = 'block';
+      } else {
+        imgWrapper.style.display = 'none';
+      }
+    }
+  }
+
+  counterEl.textContent = `Folie ${idx + 1} von ${slides.length}`;
+  lucide.createIcons();
+}
+
+function highlightCode(code, lang) {
+  if (!code) return '';
+  let escaped = code
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  if (lang === 'dockerfile') {
+    const keywords = /\b(FROM|RUN|COPY|WORKDIR|EXPOSE|CMD|ENV|ENTRYPOINT|ADD|VOLUME|USER)\b/g;
+    escaped = escaped.replace(keywords, '<span style="color: #f472b6; font-weight: bold;">$1</span>');
+    escaped = escaped.replace(/(["'])(.*?)\1/g, '<span style="color: #34d399;">$1$2$1</span>');
+    escaped = escaped.replace(/(^|\s)(#.*?)$/gm, '$1<span style="color: #6b7280; font-style: italic;">$2</span>');
+  } else if (lang === 'yaml' || lang === 'yml') {
+    escaped = escaped.replace(/^(\s*)([a-zA-Z0-9_-]+:)/gm, '$1<span style="color: #60a5fa; font-weight: 500;">$2</span>');
+    escaped = escaped.replace(/(:\s+)(?!#)(.+)$/gm, '$1<span style="color: #34d399;">$2</span>');
+    escaped = escaped.replace(/(^|\s)(#.*?)$/gm, '$1<span style="color: #6b7280; font-style: italic;">$2</span>');
+  }
+  return escaped;
+}
+
+
 // Global exports for wizard onClick elements
 window.openWizard = openWizard;
 window.closeWizard = closeWizard;
+window.openPptxStudio = openPptxStudio;
+window.closePptxStudio = closePptxStudio;
+window.pptxPrevSlide = pptxPrevSlide;
+window.pptxNextSlide = pptxNextSlide;
+window.pptxSelectSlide = pptxSelectSlide;
+window.pptxSaveSlide = pptxSaveSlide;
+window.pptxNarrateCurrent = pptxNarrateCurrent;
+window.pptxTtsCurrent = pptxTtsCurrent;
+window.pptxGenerateAllNotes = pptxGenerateAllNotes;
+window.pptxGenerateAllTts = pptxGenerateAllTts;
+window.pptxApproveIfReady = pptxApproveIfReady;
 window.wizardPrevStep = wizardPrevStep;
 window.wizardNextStep = wizardNextStep;
 window.wizardRegenerateCurriculum = wizardRegenerateCurriculum;
@@ -1818,10 +2733,106 @@ window.wizardSaveLessonEdits = wizardSaveLessonEdits;
 window.wizardTriggerMediaRendering = wizardTriggerMediaRendering;
 window.classroomPrevSlide = classroomPrevSlide;
 window.classroomNextSlide = classroomNextSlide;
+window.openSlidePreview = openSlidePreview;
+window.closeSlidePreview = closeSlidePreview;
+window.previewPrevSlide = previewPrevSlide;
+window.previewNextSlide = previewNextSlide;
 
 // Global exports for inline onclick handlers
 window.handleDeleteCourse = handleDeleteCourse;
 window.handleApproveCourse = handleApproveCourse;
+window.handleGenerateNarrations = handleGenerateNarrations;
 window.handleStopCourse = handleStopCourse;
+window.toggleFullscreen = toggleFullscreen;
+
+function getSlideImageUrl(slide, courseTopic) {
+  // Course authors can intentionally keep a text slide image-free. This is
+  // useful when the automatic topic fallback would distract from the message.
+  if (slide.hide_image === true) {
+    return '';
+  }
+  if (slide.image_url && slide.image_url.trim()) {
+    return slide.image_url;
+  }
+  if (slide.layout === 'mermaid' || slide.layout === 'code') {
+    return '';
+  }
+  const textToSearch = `${slide.title || ''} ${(slide.bullets || []).join(' ')} ${courseTopic || ''}`.toLowerCase();
+  
+  if (textToSearch.includes('docker') || textToSearch.includes('container') || textToSearch.includes('kubernetes') || textToSearch.includes('podman') || textToSearch.includes('devops')) {
+    if (slide.title && slide.title.length % 2 === 0) {
+      return '/images/container-intro.png';
+    }
+    return '/images/docker-motivation.png';
+  }
+  
+  if (textToSearch.includes('security') || textToSearch.includes('cyber') || textToSearch.includes('owasp') || textToSearch.includes('pentest') || textToSearch.includes('angriff') || textToSearch.includes('hack') || textToSearch.includes('passwort') || textToSearch.includes('auth')) {
+    return '/images/cybersecurity.png';
+  }
+
+  if (textToSearch.includes('db') || textToSearch.includes('database') || textToSearch.includes('datenbank') || textToSearch.includes('postgres') || textToSearch.includes('sql') || textToSearch.includes('nosql') || textToSearch.includes('server') || textToSearch.includes('cloud')) {
+    return '/images/database.png';
+  }
+
+  return '/images/coding.png';
+}
+
+function getSlideSpeechScript(fullScript, slideIndex, totalSlides) {
+  if (!fullScript) return '';
+  
+  // Split by double newline or single newline if double isn't used
+  let paragraphs = fullScript.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+  if (paragraphs.length < 2) {
+    paragraphs = fullScript.split(/\n/).map(p => p.trim()).filter(Boolean);
+  }
+  
+  if (paragraphs.length === 0) return '';
+  if (totalSlides <= 1) return fullScript;
+  
+  // Distribute paragraphs to slides evenly
+  const numParagraphs = paragraphs.length;
+  const avg = numParagraphs / totalSlides;
+  
+  const startIdx = Math.floor(slideIndex * avg);
+  const endIdx = (slideIndex === totalSlides - 1) ? numParagraphs : Math.floor((slideIndex + 1) * avg);
+  
+  return paragraphs.slice(startIdx, endIdx).join('\n\n');
+}
+
+function toggleFullscreen() {
+  const container = document.getElementById('lesson-media-container');
+  if (!container) return;
+
+  if (!document.fullscreenElement) {
+    container.requestFullscreen().then(() => {
+      container.classList.add('fullscreen-active');
+    }).catch((err) => {
+      console.error(`Error attempting to enable fullscreen: ${err.message}`);
+    });
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+document.addEventListener('fullscreenchange', () => {
+  const container = document.getElementById('lesson-media-container');
+  const btn = document.getElementById('video-fullscreen-btn');
+  if (!container) return;
+  
+  const isFS = !!document.fullscreenElement;
+  container.classList.toggle('fullscreen-active', isFS);
+  
+  if (btn) {
+    const icon = btn.querySelector('i');
+    if (isFS) {
+      btn.setAttribute('title', 'Vollbild beenden');
+      if (icon) icon.setAttribute('data-lucide', 'minimize');
+    } else {
+      btn.setAttribute('title', 'Vollbildmodus');
+      if (icon) icon.setAttribute('data-lucide', 'maximize');
+    }
+    lucide.createIcons();
+  }
+});
 
 

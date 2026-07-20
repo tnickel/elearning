@@ -74,9 +74,8 @@ desktop.ini
 # ========================
 # Audio / Media outputs (generated at runtime)
 # ========================
-public/audio/*.mp3
-public/audio/*.wav
-public/audio/*.ogg
+public/audio/
+public/slides/
 
 # ========================
 # Drizzle / DB Migrations (generated)
