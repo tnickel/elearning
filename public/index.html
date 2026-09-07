@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KI-gesteuerte E-Learning Plattform</title>
+  <title>eLearning – KI-gesteuerte Lernplattform</title>
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +20,7 @@
         mermaid.initialize({
           startOnLoad: false,
           theme: 'base',
-          securityLevel: 'loose',
+          securityLevel: 'strict',
           themeVariables: {
             background: 'transparent',
             primaryColor: '#141b2d',
@@ -49,11 +49,14 @@
     <!-- 1. LOGIN SCREEN -->
     <div id="login-screen" class="screen active">
       <div class="glass-card login-card">
-        <div class="logo">
-          <i data-lucide="graduation-cap"></i>
-          <h1>Aethel Learning</h1>
+        <div class="logo" style="display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 12px;">
+          <img src="/images/elearning_brand_logo.jpg" alt="AI Learn Logo" style="width: 56px; height: 56px; border-radius: 12px; object-fit: cover; box-shadow: 0 4px 18px rgba(6, 182, 212, 0.45); border: 1px solid rgba(255,255,255,0.22);">
+          <div style="text-align: left;">
+            <h1 style="font-size: 1.65rem; margin: 0; line-height: 1.1; color: #fff; font-weight: 800;">AI Learn <span style="font-size: 0.72rem; vertical-align: middle; padding: 3px 8px; background: linear-gradient(135deg, #06b6d4, #8b5cf6); border-radius: 5px; font-weight: 800; letter-spacing: 0.05em;">PRO</span></h1>
+            <span style="font-size: 0.78rem; color: var(--text-secondary); letter-spacing: 0.02em;">Enterprise Zero-Ops Platform</span>
+          </div>
         </div>
-        <p class="subtitle">Willkommen beim intelligenten Zero-Ops E-Learning Portal</p>
+        <p class="subtitle">Willkommen beim intelligenten Enterprise AI E-Learning Portal</p>
         
         <form id="login-form">
           <div class="form-group">
@@ -104,11 +107,19 @@
     <div id="main-interface" class="screen">
       <!-- Navbar -->
       <nav class="navbar glass-card">
-        <div class="nav-brand">
-          <i data-lucide="graduation-cap"></i>
-          <span>Aethel Learning</span>
+        <div class="nav-brand" style="display: flex; align-items: center; gap: 12px;">
+          <img src="/images/elearning_brand_logo.jpg" alt="AI Learn Logo" style="width: 38px; height: 38px; border-radius: 9px; object-fit: cover; box-shadow: 0 2px 10px rgba(6, 182, 212, 0.4); border: 1px solid rgba(255,255,255,0.2);">
+          <div>
+            <div style="font-weight: 800; font-size: 1.15rem; color: #fff; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px;">
+              AI Learn <span style="font-size: 0.65rem; padding: 2px 6px; background: linear-gradient(135deg, #06b6d4, #8b5cf6); color: #fff; border-radius: 4px; font-weight: 800; letter-spacing: 0.05em;">ENTERPRISE</span>
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: -2px;">Zero-Ops Course Factory</div>
+          </div>
         </div>
         <div class="nav-links">
+          <a href="inspector.html" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px; text-decoration: none; border-color: rgba(139, 92, 246, 0.4); color: #c084fc;">
+            <i data-lucide="scan-search"></i> Course Factory Entwürfe prüfen
+          </a>
           <span id="role-badge" class="badge">Rolle</span>
           <span id="user-display">student@beispiel.de</span>
           <button id="logout-btn" class="btn btn-icon" title="Logout">
@@ -209,6 +220,7 @@
               <!-- Content Tabs -->
               <div class="tabs">
                 <button class="tab-btn active" data-tab="tab-theory">Theorie</button>
+                <button class="tab-btn" data-tab="tab-practice">Praxis</button>
                 <button class="tab-btn" data-tab="tab-slides">Präsentations-Folien</button>
                 <button class="tab-btn" data-tab="tab-quiz">Wissenstest</button>
                 <button class="tab-btn" data-tab="tab-audit">Lernzeit-Chain</button>
@@ -219,6 +231,12 @@
                 <div id="tab-theory" class="tab-content active">
                   <div id="lesson-text" class="markdown-body">
                     <!-- Theory text will be injected here -->
+                  </div>
+                </div>
+
+                <div id="tab-practice" class="tab-content">
+                  <div id="lesson-practice" class="practice-panel">
+                    <p class="subtitle">Keine Programmieraufgabe für diese Lektion.</p>
                   </div>
                 </div>
 
@@ -289,54 +307,380 @@
       <!-- 3. ADMIN DASHBOARD -->
       <div id="admin-dashboard" class="dashboard-view">
         <div class="admin-grid">
-          <!-- Course designer -->
-          <div class="glass-card admin-control-card">
-            <h3><i data-lucide="plus-circle"></i> Kurs Designer & Generator</h3>
-            <p class="card-desc">Definiere ein neues Thema. Der Temporal Orchestrator generiert daraus über den AI-Service vollautomatisch strukturierte Lehrpläne, Begleittexte, Quizfragen und HeyGen-Videos.</p>
-            
-            <form id="course-generator-form" style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: flex-end;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="course-topic">Schulungs-Thema</label>
-                <div class="input-wrapper">
-                  <i data-lucide="book-open"></i>
-                  <input type="text" id="course-topic" required placeholder="z. B. Docker & Kubernetes Grundlagen, Cybersecurity OWASP Top 10">
-                </div>
-              </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="course-duration">Kurs-Dauer</label>
-                <div class="input-wrapper">
-                  <i data-lucide="calendar"></i>
-                  <select id="course-duration">
-                    <option value="1_hour">Minikurs (1 Std. - nur 1 Lektion zum Testen)</option>
-                    <option value="1_week">1 Woche</option>
-                    <option value="2_weeks" selected>2 Wochen (Standard)</option>
-                    <option value="4_weeks">4 Wochen</option>
-                    <option value="crash_course">Crashkurs (Kompakt)</option>
-                  </select>
-                </div>
-              </div>
-              <button type="submit" class="btn btn-primary" style="grid-column: span 2; margin-top: 10px;">
-                Kurs automatisch erstellen <i data-lucide="sparkles"></i>
-              </button>
-            </form>
 
-            <!-- Divider -->
-            <div style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.06); position: relative; text-align: center;">
-              <span style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #0b111e; padding: 0 12px; font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Oder</span>
+          <!-- Enterprise AI Engines & Technology Ecosystem Bar -->
+          <div class="enterprise-ecosystem-bar">
+            <div class="ecosystem-label">
+              <span class="pulse-dot"></span> Enterprise AI &amp; Cloud Engines
             </div>
-
-            <!-- PowerPoint Upload Dropzone -->
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <label style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 500;">Bestehende PowerPoint-Präsentation (.pptx) importieren</label>
-              <div id="pptx-dropzone" style="border: 2px dashed rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 20px; text-align: center; background: rgba(139, 92, 246, 0.02); cursor: pointer; transition: all 0.3s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.borderColor='var(--accent-primary)'; this.style.background='rgba(139, 92, 246, 0.05)';" onmouseout="this.style.borderColor='rgba(139, 92, 246, 0.3)'; this.style.background='rgba(139, 92, 246, 0.02)';">
-                <i data-lucide="presentation" style="width: 32px; height: 32px; color: var(--accent-primary);"></i>
-                <span id="pptx-dropzone-text" style="font-size: 0.85rem; color: var(--text-primary); font-weight: 500;">Datei auswählen oder hierher ziehen</span>
-                <span style="font-size: 0.7rem; color: var(--text-secondary);">.pptx max. 50MB — Folien werden 1:1 als Bilder exportiert (PowerPoint nötig)</span>
-                <input type="file" id="pptx-file-input" accept=".pptx" style="display: none;">
+            <div class="ecosystem-logos">
+              <div class="ecosystem-badge" title="OpenAI GPT-4o / Reasoning">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M22.28 9.27a5.52 5.52 0 0 0-.46-4.42 5.6 5.6 0 0 0-5.74-2.73 5.53 5.53 0 0 0-4.08-1.8 5.6 5.6 0 0 0-5.32 3.86 5.53 5.53 0 0 0-3.66 2.65 5.6 5.6 0 0 0 .65 6.29 5.52 5.52 0 0 0 .46 4.42 5.6 5.6 0 0 0 5.74 2.73 5.53 5.53 0 0 0 4.08 1.8 5.6 5.6 0 0 0 5.32-3.86 5.53 5.53 0 0 0 3.66-2.65 5.6 5.6 0 0 0-.65-6.29zM12 14.88a2.88 2.88 0 1 1 2.88-2.88 2.88 2.88 0 0 1-2.88 2.88z"/></svg>
+                <span>OpenAI</span>
+              </div>
+              <div class="ecosystem-badge" title="Anthropic Claude 3.5 / Didactic Architecture">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"/></svg>
+                <span>Claude 3.5</span>
+              </div>
+              <div class="ecosystem-badge" title="ElevenLabs Neural Voice Synthesis">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="4" height="16" rx="2"/><rect x="15" y="4" width="4" height="16" rx="2"/></svg>
+                <span>ElevenLabs</span>
+              </div>
+              <div class="ecosystem-badge" title="HeyGen Video Avatar Automation">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2.5l4-2.5v12l-4-2.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z"/></svg>
+                <span>HeyGen AI</span>
+              </div>
+              <div class="ecosystem-badge" title="Temporal.io Durable Execution Engine">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                <span>Temporal</span>
+              </div>
+              <div class="ecosystem-badge" title="PostgreSQL &amp; pgvector RLS Knowledge Base">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 2.01-9 4.5S7.03 12 12 12s9-2.01 9-4.5S16.97 3 12 3zm-9 6v4.5C3 16 7.03 18 12 18s9-2 9-4.5V9c-1.8 1.4-5.1 2.3-9 2.3S4.8 10.4 3 9zm0 6V19.5C3 22 7.03 24 12 24s9-2 9-4.5V15c-1.8 1.4-5.1 2.3-9 2.3S4.8 16.4 3 15z"/></svg>
+                <span>PostgreSQL pgvector</span>
+              </div>
+              <div class="ecosystem-badge" title="Docker Containerized Sandbox">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M22.5 10.5c-.3-.2-1.3-.3-2.3.3-.2-.5-.6-1-1.2-1.3l-.6-.3-.3.6c-.3.7-.3 1.5-.1 2.2-.4.2-1.1.3-2 .3H2c-.5 0-.9.4-.9.9 0 3.3 2 6.3 5.4 7.6 3.6 1.4 7.8.9 11-1.3 2.5-1.7 4-4.5 4.3-7.5.3-.2.8-.7.7-1.5zM6 10H4V8h2v2zm3 0H7V8h2v2zm3 0h-2V8h2v2zm3 0h-2V8h2v2zm-6-3H7V5h2v2zm3 0h-2V5h2v2zm3 0h-2V5h2v2z"/></svg>
+                <span>Docker</span>
+              </div>
+              <div class="ecosystem-badge" title="FastAPI High-Speed Python Microservice">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L3 13h7v9l9-11h-7V2z"/></svg>
+                <span>FastAPI Python</span>
               </div>
             </div>
           </div>
 
+          <!-- 3-SEKTIONEN WORKFLOW PIPELINE -->
+          <div class="admin-workflow-pipeline">
+            <a href="#section-1" class="pipeline-step-item active">
+              <div class="pipeline-step-circle">1</div>
+              <div class="pipeline-step-info">
+                <span class="pipeline-step-tag">SEKTION 1</span>
+                <span class="pipeline-step-name">Anforderung &amp; Erstellung</span>
+              </div>
+            </a>
+            <div class="pipeline-step-arrow"><i data-lucide="chevron-right"></i></div>
+            <a href="#section-2" class="pipeline-step-item">
+              <div class="pipeline-step-circle">2</div>
+              <div class="pipeline-step-info">
+                <span class="pipeline-step-tag">SEKTION 2</span>
+                <span class="pipeline-step-name">Ergebnisse &amp; Freigaben</span>
+              </div>
+            </a>
+            <div class="pipeline-step-arrow"><i data-lucide="chevron-right"></i></div>
+            <a href="#section-3" class="pipeline-step-item">
+              <div class="pipeline-step-circle">3</div>
+              <div class="pipeline-step-info">
+                <span class="pipeline-step-tag">SEKTION 3</span>
+                <span class="pipeline-step-name">System-Konfiguration</span>
+              </div>
+            </a>
+          </div>
+
+          <!-- ================= SEKTION 1: ANFORDERUNG & KURSERSTELLUNG ================= -->
+          <div class="section-master-header section-header-1" id="section-1">
+            <div class="section-header-top">
+              <div class="section-number-pill">
+                <span class="num-badge">1</span>
+                <span class="num-text">SEKTION 1</span>
+              </div>
+              <div class="section-title-wrap">
+                <h2 class="section-main-title">Anforderung &amp; Modell-Auswahl</h2>
+                <p class="section-main-subtitle">Wähle eines der 3 didaktischen Modelle und definiere Kursinhalt, Thema und Ziel-Umfang.</p>
+              </div>
+            </div>
+            <div class="section-glow-divider divider-req"></div>
+          </div>
+
+          <!-- 3 WEGE ZUR KURSERSTELLUNG -->
+          <div class="glass-card course-creation-section">
+            <div class="creation-header-box" style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+              <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: #c084fc; text-transform: uppercase; letter-spacing: 0.06em; background: rgba(139, 92, 246, 0.18); border: 1px solid rgba(139, 92, 246, 0.35); padding: 4px 10px; border-radius: 6px;">
+                  Modell-Auswahl
+                </span>
+                <span style="font-size: 0.88rem; color: #e2e8f0; font-weight: 500;">
+                  Klicke auf die gewünschte Kachel (Option A, B oder C), um das Modell zu aktivieren:
+                </span>
+              </div>
+            </div>
+
+            <!-- 3 Mode Cards with visual arrows -->
+            <div class="creation-modes-grid">
+              <!-- Mode Card A: Kompletter Kurs -->
+              <div class="creation-mode-card card-a active" id="card-mode-full" onclick="selectCreationMode('full')">
+                <div class="card-accent-bar"></div>
+                <div class="arrow-indicator"></div>
+                <div class="mode-card-top">
+                  <span class="mode-badge mode-badge-a">Option A · Vollautomatisch</span>
+                  <div class="mode-icon-box mode-icon-a">
+                    <i data-lucide="sparkles" style="width: 22px; height: 22px;"></i>
+                  </div>
+                </div>
+                <h4 class="mode-card-title">Kompletter Kurs</h4>
+                <p class="mode-card-desc">End-to-End Generierung: Didaktischer Lehrplan, Folien, Sprechtexte, Audio-Vertonung &amp; Aufgaben vollautomatisch erstellen.</p>
+                <div class="mode-feature-list">
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Lehrplan &amp; Didaktik</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Folien &amp; Grafiken</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> ElevenLabs Audio</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Quizzes &amp; Code</span>
+                </div>
+                <div class="mode-select-btn mode-select-btn-a">
+                  <span id="hint-text-full">✓ Ausgewählt (Eingabe unten aktiv)</span>
+                  <i data-lucide="arrow-down" style="width: 15px; height: 15px;"></i>
+                </div>
+              </div>
+
+              <!-- Mode Card B: PowerPoint Import -->
+              <div class="creation-mode-card card-b" id="card-mode-pptx" onclick="selectCreationMode('pptx')">
+                <div class="card-accent-bar"></div>
+                <div class="arrow-indicator"></div>
+                <div class="mode-card-top">
+                  <span class="mode-badge mode-badge-b">Option B · PowerPoint 1:1</span>
+                  <div class="mode-icon-box mode-icon-b">
+                    <i data-lucide="presentation" style="width: 22px; height: 22px;"></i>
+                  </div>
+                </div>
+                <h4 class="mode-card-title">PowerPoint Import</h4>
+                <p class="mode-card-desc">Bestehende .pptx-Präsentation 1:1 übernehmen, hochauflösend rendern und anschließend im Folien-Wizard vertonen.</p>
+                <div class="mode-feature-list">
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> 1:1 Folien-Export</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> KI-Folientexte</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Studio-Vertonung</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Direkter Import</span>
+                </div>
+                <div class="mode-select-btn mode-select-btn-b">
+                  <span id="hint-text-pptx">Diese Option wählen</span>
+                  <i data-lucide="arrow-down" style="width: 15px; height: 15px;"></i>
+                </div>
+              </div>
+
+              <!-- Mode Card C: Nur Konzept -->
+              <div class="creation-mode-card card-c" id="card-mode-concept" onclick="selectCreationMode('concept')">
+                <div class="card-accent-bar"></div>
+                <div class="arrow-indicator"></div>
+                <div class="mode-card-top">
+                  <span class="mode-badge mode-badge-c">Option C · Schnell-Rahmen</span>
+                  <div class="mode-icon-box mode-icon-c">
+                    <i data-lucide="compass" style="width: 22px; height: 22px;"></i>
+                  </div>
+                </div>
+                <h4 class="mode-card-title">Nur Konzept</h4>
+                <p class="mode-card-desc">Reiner didaktischer Rahmen: Strukturierte Modulübersicht, Lektionen und Lernziele planen – ohne Folien und Vertonung.</p>
+                <div class="mode-feature-list">
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Modul-Struktur</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Lernziel-Katalog</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Zeitrichtwerte</span>
+                  <span class="mode-feature-chip"><i data-lucide="check" style="width: 12px; height: 12px;"></i> Sofort bereit</span>
+                </div>
+                <div class="mode-select-btn mode-select-btn-c">
+                  <span id="hint-text-concept">Diese Option wählen</span>
+                  <i data-lucide="arrow-down" style="width: 15px; height: 15px;"></i>
+                </div>
+              </div>
+            </div>
+
+            <!-- Workflow Panes with Mode Connection Bridge -->
+            <div class="creation-panes-wrapper mode-full" id="creation-panes-wrapper">
+              <!-- Active Mode Connection Bridge -->
+              <div class="mode-connection-bridge" id="mode-connection-bridge">
+                <div class="bridge-tag" id="bridge-tag">
+                  <i data-lucide="arrow-down-right" style="width: 14px; height: 14px;"></i>
+                  <span id="bridge-tag-text">GEWÄHLTE OPTION: A (VOLLAUTOMATISCH)</span>
+                </div>
+                <div class="bridge-main-info">
+                  <span class="bridge-title" id="bridge-title">Eingabe-Formular für: Option A · Vollautomatischer KI-Kurs</span>
+                  <span class="bridge-desc" id="bridge-desc">Erstellt Lehrplan, Folieninhalte, Audio-Vertonung und Prüfungsaufgaben.</span>
+                </div>
+              </div>
+
+              <!-- Pane A: Kompletter Kurs -->
+              <div class="creation-pane active" id="pane-mode-full">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                  <h4 style="margin: 0; color: #fff; font-size: 1.05rem; display: flex; align-items: center; gap: 10px;">
+                    <span style="background: rgba(168, 85, 247, 0.25); border: 1px solid rgba(168, 85, 247, 0.5); color: #c084fc; padding: 2px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 800;">OPTION A</span>
+                    Vollständigen KI-Kurs definieren &amp; generieren
+                  </h4>
+                  <span style="font-size: 0.8rem; color: #94a3b8;">Erstellt Lehrplan, Folieninhalte &amp; Bereitstellung zur Vertonung</span>
+                </div>
+                <form id="course-generator-form" style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: flex-end;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label for="course-topic" style="display: flex; align-items: center; justify-content: space-between;">
+                      <span>Schulungs-Thema</span>
+                      <span class="required-input-badge badge-purple">Hier eingeben ✍️</span>
+                    </label>
+                    <div class="input-wrapper input-attention-purple">
+                      <i data-lucide="book-open"></i>
+                      <input type="text" id="course-topic" required placeholder="z. B. Docker &amp; Kubernetes Grundlagen, Cybersecurity OWASP Top 10">
+                    </div>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label for="course-duration">Kurs-Dauer</label>
+                    <div class="input-wrapper">
+                      <i data-lucide="calendar"></i>
+                      <select id="course-duration" onchange="onIndexDurationChange()">
+                        <option value="1_slide">🎯 Minikurs (1 Folie – Schnelltest)</option>
+                        <option value="1_day" selected>⚡ 1 Tag (Test-Modus – 8 UE)</option>
+                        <option value="1_week">📅 1 Woche (Kompaktkurs – 40 UE)</option>
+                        <option value="2_weeks">📅 2 Wochen (Crashkurs – 80 UE)</option>
+                        <option value="4_weeks">📅 4 Wochen / 1 Monat (Standardmodul – 160 UE)</option>
+                        <option value="6_weeks">📅 6 Wochen (Intensivkurs – 240 UE)</option>
+                        <option value="8_weeks">🏆 2 Monate / 8 Wochen (Bootcamp – 320 UE)</option>
+                        <option value="custom">⚙️ Benutzerdefiniert (Wochen eingeben)...</option>
+                      </select>
+                    </div>
+                    <div id="index-custom-weeks-box" style="display: none; align-items: center; gap: 8px; margin-top: 8px;">
+                      <input type="number" id="index-custom-weeks-input" min="1" max="52" value="3" style="width: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 5px 8px; border-radius: 6px; font-size: 0.85rem;">
+                      <span style="font-size: 0.8rem; color: var(--text-secondary);">Wochen (z. B. 3 Wochen = 120 UE)</span>
+                    </div>
+                  </div>
+                  <button type="submit" class="btn btn-primary" style="grid-column: span 2; margin-top: 10px;">
+                    Kompletten Kurs generieren <i data-lucide="sparkles"></i>
+                  </button>
+                </form>
+              </div>
+
+              <!-- Pane B: PowerPoint Import -->
+              <div class="creation-pane" id="pane-mode-pptx">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                  <h4 style="margin: 0; color: #fff; font-size: 1.05rem; display: flex; align-items: center; gap: 10px;">
+                    <span style="background: rgba(56, 189, 248, 0.25); border: 1px solid rgba(56, 189, 248, 0.5); color: #38bdf8; padding: 2px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 800;">OPTION B</span>
+                    PowerPoint-Präsentation (.pptx) hochladen
+                  </h4>
+                  <span style="font-size: 0.8rem; color: #94a3b8;">Rendert Folien 1:1 und leitet direkt in das Folien-Studio</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <div id="pptx-dropzone" style="border: 2px dashed rgba(56, 189, 248, 0.35); border-radius: 10px; padding: 28px; text-align: center; background: rgba(56, 189, 248, 0.03); cursor: pointer; transition: all 0.3s; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;" onmouseover="this.style.borderColor='#38bdf8'; this.style.background='rgba(56, 189, 248, 0.07)';" onmouseout="this.style.borderColor='rgba(56, 189, 248, 0.35)'; this.style.background='rgba(56, 189, 248, 0.03)';">
+                    <div style="width: 50px; height: 50px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+                      <i data-lucide="upload-cloud" style="width: 26px; height: 26px;"></i>
+                    </div>
+                    <span id="pptx-dropzone-text" style="font-size: 0.95rem; color: var(--text-primary); font-weight: 600;">PowerPoint-Datei auswählen oder hierher ziehen</span>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">.pptx max. 50MB — Original-Folien werden 1:1 als hochauflösende Präsentation exportiert</span>
+                    <input type="file" id="pptx-file-input" accept=".pptx" style="display: none;">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pane C: Nur Konzept -->
+              <div class="creation-pane" id="pane-mode-concept">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                  <h4 style="margin: 0; color: #fff; font-size: 1.05rem; display: flex; align-items: center; gap: 10px;">
+                    <span style="background: rgba(52, 211, 153, 0.25); border: 1px solid rgba(52, 211, 153, 0.5); color: #34d399; padding: 2px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 800;">OPTION C</span>
+                    Didaktischen Rahmenlehrplan / Konzept konzipieren
+                  </h4>
+                  <span style="font-size: 0.8rem; color: #94a3b8;">Erstellt nur Modulübersicht, Lektionen und Lernziele (ohne Folien &amp; Vertonung)</span>
+                </div>
+                <form id="concept-generator-form" style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: flex-end;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label for="concept-topic" style="display: flex; align-items: center; justify-content: space-between;">
+                      <span>Konzept-Thema</span>
+                      <span class="required-input-badge badge-emerald">Hier Thema eingeben ✍️</span>
+                    </label>
+                    <div class="input-wrapper input-attention-emerald">
+                      <i data-lucide="book-open"></i>
+                      <input type="text" id="concept-topic" required placeholder="z. B. Einführung in Clean Code &amp; Softwarearchitektur">
+                    </div>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label for="concept-duration">Ziel-Umfang / Rahmen</label>
+                    <div class="input-wrapper">
+                      <i data-lucide="calendar"></i>
+                      <select id="concept-duration">
+                        <option value="1_day">⚡ 1 Tag (Kompakter Themenrahmen – 8 UE)</option>
+                        <option value="1_week" selected>📅 1 Woche (Standard-Rahmenlehrplan – 40 UE)</option>
+                        <option value="2_weeks">📅 2 Wochen (Vertiefendes Curriculum – 80 UE)</option>
+                        <option value="4_weeks">📅 1 Monat (Modul-Curriculum – 160 UE)</option>
+                        <option value="8_weeks">🏆 2 Monate (Bootcamp-Rahmen – 320 UE)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button type="submit" class="btn btn-primary" style="grid-column: span 2; margin-top: 10px; background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%); font-weight: 600;">
+                    Didaktisches Konzept &amp; PDF-Lehrplan erstellen <i data-lucide="file-text"></i>
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <!-- ================= SEKTION 2: ERGEBNISSE & GENERIERTE KURSE ================= -->
+          <div class="section-master-header section-header-2" id="section-2">
+            <div class="section-header-top">
+              <div class="section-number-pill pill-emerald">
+                <span class="num-badge">2</span>
+                <span class="num-text">SEKTION 2</span>
+              </div>
+              <div class="section-title-wrap">
+                <h2 class="section-main-title">Ergebnisse &amp; Generierte Kurse</h2>
+                <p class="section-main-subtitle">Hier erscheinen deine erstellten Kurse sofort nach der Generierung zur Prüfung, Freigabe und zum Abspielen.</p>
+              </div>
+            </div>
+            <div class="section-glow-divider divider-res"></div>
+          </div>
+
+          <!-- Course management table (Sofort sichtbar unterhalb der Eingabe) -->
+          <div class="glass-card table-card" style="grid-column: span 2;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 12px;">
+              <div>
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 1.18rem; color: #fff;">
+                  <i data-lucide="list" style="color: var(--accent-secondary);"></i> Generierte Kurse &amp; Freigaben
+                </h3>
+                <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: var(--text-secondary);">
+                  Fortschritt, Folien- und Audio-Pipeline, Live-Status sowie Aktionen (Wizard, Abspielen, MP4-Export).
+                </p>
+              </div>
+              <span style="font-size: 0.8rem; color: #67e8f9; background: rgba(6,182,212,0.12); border: 1px solid rgba(6,182,212,0.3); padding: 4px 12px; border-radius: 8px; font-weight: 600;">
+                <i data-lucide="refresh-cw" style="width: 13px; height: 13px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Live-Status synchronisiert
+              </span>
+            </div>
+            <div class="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Thema</th>
+                    <th>Pipeline</th>
+                    <th>Status</th>
+                    <th>Erstellt am</th>
+                    <th>Aktion</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-courses-table-body">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ================= SEKTION 3: SYSTEM-KONFIGURATION, VORLAGEN & REVISION ================= -->
+          <div class="section-master-header section-header-3" id="section-3">
+            <div class="section-header-top">
+              <div class="section-number-pill pill-indigo">
+                <span class="num-badge">3</span>
+                <span class="num-text">SEKTION 3</span>
+              </div>
+              <div class="section-title-wrap">
+                <h2 class="section-main-title">System-Konfiguration, Vorlagen &amp; Revision</h2>
+                <p class="section-main-subtitle">Multi-Agent Entwurfsprüfung, KI-Modelle &amp; API-Keys, Prompt-Vorlagen und kryptographischer Audit-Nachweis.</p>
+              </div>
+            </div>
+            <div class="section-glow-divider divider-sys"></div>
+          </div>
+
+          <!-- Course Factory Inspector Banner -->
+          <div class="glass-card" style="grid-column: span 2; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(6, 182, 212, 0.08)); border: 1px solid rgba(139, 92, 246, 0.3);">
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(139, 92, 246, 0.2); display: flex; align-items: center; justify-content: center; color: var(--accent-primary);">
+                <i data-lucide="layers" style="width: 24px; height: 24px;"></i>
+              </div>
+              <div>
+                <h3 style="margin: 0; font-size: 1.1rem; color: #fff;">Course Factory Multi-Agent Entwürfe (320 UE)</h3>
+                <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--text-secondary);">
+                  Prüfe generierte Folien, ElevenLabs-Sprechertexte, Programmieraufgaben und 10-Fragen-Quizzes interaktiv vor dem Datenbank-Import.
+                </p>
+              </div>
+            </div>
+            <a href="inspector.html" class="btn btn-primary" style="display: flex; align-items: center; gap: 8px; text-decoration: none;">
+              <i data-lucide="eye"></i> Entwürfe jetzt prüfen &amp; freigeben
+            </a>
+          </div>
 
           <!-- Audit Log Verifier -->
           <div class="glass-card admin-control-card">
@@ -372,177 +716,399 @@
             </div>
             
             <div id="config-collapse-content" class="hidden" style="margin-top: 16px;">
-              <p class="card-desc">Verwalte die API-Keys und wähle die LLM- und Embedding-Provider aus. Die Änderungen werden live in der .env-Datei gespeichert und vom System übernommen.</p>
-              
-              <form id="admin-config-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                <div class="form-group" style="grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 16px;">
+              <p class="card-desc" style="margin-bottom: 16px;">
+                Konfiguriere in 2 einfachen Schritten: Erst wählst du deine gewünschten Dienste (1), danach trägst du nur die wirklich benötigten Keys ein (2).
+              </p>
+
+              <!-- Stepper Header Navigation -->
+              <div class="cfg-stepper-header">
+                <div id="cfg-tab-1" class="cfg-step-tab active" onclick="switchConfigStep(1)">
+                  <div class="cfg-step-num">1</div>
                   <div>
-                    <label for="cfg-generate-video">Medien-Modus</label>
-                    <div class="input-wrapper">
-                      <i data-lucide="video"></i>
-                      <select id="cfg-generate-video">
-                        <option value="false">Nur Ton / Audio-only (Schnell)</option>
-                        <option value="true">Avatar-Video erzeugen</option>
-                      </select>
-                    </div>
+                    <div style="font-weight: 600; font-size: 0.9rem;">1. Was brauche ich?</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">Features & Anbieter auswählen</div>
                   </div>
+                  <span id="cfg-badge-step1" class="cfg-step-badge" style="background: rgba(139,92,246,0.2); color: #c084fc;">Auswahl</span>
+                </div>
+
+                <div id="cfg-tab-2" class="cfg-step-tab" onclick="switchConfigStep(2)">
+                  <div class="cfg-step-num">2</div>
                   <div>
-                    <label for="cfg-tts-provider">Audio-Generator (TTS)</label>
-                    <div class="input-wrapper">
-                      <i data-lucide="mic"></i>
-                      <select id="cfg-tts-provider" onchange="onTtsProviderChange()">
-                        <option value="elevenlabs">ElevenLabs</option>
-                        <option value="minimax">MiniMax</option>
-                      </select>
-                    </div>
+                    <div style="font-weight: 600; font-size: 0.9rem;">2. API-Keys & Feineinstellungen</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">Nur erforderliche Zugangsdaten</div>
                   </div>
-                  <div>
-                    <label for="cfg-video-provider">Video-Anbieter (Avatar)</label>
-                    <div class="input-wrapper">
-                      <i data-lucide="cpu"></i>
-                      <select id="cfg-video-provider">
-                        <option value="elevenlabs">ElevenLabs Lip-Sync</option>
-                        <option value="heygen">HeyGen Avatars</option>
-                      </select>
-                    </div>
-                  </div>
+                  <span id="cfg-badge-step2" class="cfg-step-badge" style="background: rgba(255,255,255,0.06); color: var(--text-secondary);">Status wird geladen...</span>
                 </div>
+              </div>
 
-                <div class="form-group">
-                  <label for="cfg-llm-provider">LLM-Anbieter</label>
-                  <div class="input-wrapper">
-                    <i data-lucide="cpu"></i>
-                    <select id="cfg-llm-provider">
-                      <option value="openrouter">OpenRouter (Cloud)</option>
-                      <option value="vllm">Lokales vLLM Modell</option>
-                    </select>
-                  </div>
-                </div>
+              <form id="admin-config-form">
 
-                <div class="form-group">
-                  <label for="cfg-openrouter-model">OpenRouter Modell</label>
-                  <div class="input-wrapper">
-                    <i data-lucide="box"></i>
-                    <input type="text" id="cfg-openrouter-model" placeholder="google/gemini-2.5-pro">
-                  </div>
-                </div>
-
-                <div class="form-group">
-                  <label for="cfg-openrouter-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                    <span>OpenRouter API-Key</span>
-                    <button type="button" id="btn-test-openrouter" style="font-size: 11px; padding: 2px 8px; height: auto; margin: 0; line-height: 1.2; display: flex; align-items: center; gap: 4px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
-                      <i data-lucide="shield-check" style="width: 12px; height: 12px;"></i> Key testen
-                    </button>
-                  </label>
-                  <div class="input-wrapper">
-                    <i data-lucide="key"></i>
-                    <input type="text" id="cfg-openrouter-key" placeholder="sk-or-...">
-                  </div>
-                  <div id="openrouter-test-status" style="font-size: 11px; margin-top: 4px; font-weight: 500; display: none;"></div>
-                </div>
-
-                <div class="form-group">
-                  <label for="cfg-embedding-provider">Embedding-Anbieter</label>
-                  <div class="input-wrapper">
-                    <i data-lucide="database"></i>
-                    <select id="cfg-embedding-provider">
-                      <option value="local">Lokales SentenceTransformer (all-MiniLM-L6-v2)</option>
-                      <option value="openrouter">OpenRouter (OpenAI text-embedding-3-small)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="form-group">
-                  <label for="cfg-vllm-url">vLLM Base URL</label>
-                  <div class="input-wrapper">
-                    <i data-lucide="link"></i>
-                    <input type="text" id="cfg-vllm-url" placeholder="http://localhost:8000/v1">
-                  </div>
-                </div>
-
-                <div class="form-group">
-                  <label for="cfg-vllm-model">vLLM Modell</label>
-                  <div class="input-wrapper">
-                    <i data-lucide="box"></i>
-                    <input type="text" id="cfg-vllm-model" placeholder="meta-llama/Meta-Llama-3-8B-Instruct">
-                  </div>
-                </div>
-
-                <!-- ====== AUDIO-GENERATOREN SEKTION ====== -->
-                <div style="grid-column: span 2; margin-top: 8px;">
-                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08);">
-                    <i data-lucide="headphones" style="color: var(--accent-primary); width: 18px; height: 18px;"></i>
-                    <h4 style="margin: 0; font-size: 0.9rem; color: var(--text-primary);">Audio-Generatoren (TTS)</h4>
-                    <span id="tts-active-badge" style="font-size: 10px; padding: 2px 8px; border-radius: 20px; background: rgba(132,90,223,0.25); border: 1px solid rgba(132,90,223,0.5); color: #c084fc; font-weight: 600; letter-spacing: 0.04em;">AKTIV: ElevenLabs</span>
-                  </div>
-
+                <!-- ================= SCHRITT 1: BEDARFS-AUSWAHL ================= -->
+                <div id="cfg-step-1-content">
                   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-
-                    <!-- ElevenLabs Card -->
-                    <div id="card-elevenlabs" class="glass-card" style="padding: 16px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); position: relative; transition: border-color 0.3s;">
-                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                    
+                    <!-- 1. LLM Provider -->
+                    <div class="glass-card" style="padding: 16px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                          <i data-lucide="volume-2" style="color: #a78bfa; width: 16px; height: 16px;"></i>
-                          <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">ElevenLabs</span>
-                          <span style="font-size: 9px; background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.3); color: #a78bfa; padding: 1px 6px; border-radius: 10px;">~$0.30–0.60 / 1M Zeichen</span>
+                          <i data-lucide="cpu" style="color: var(--accent-primary); width: 18px; height: 18px;"></i>
+                          <span style="font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">1. KI-Texterstellung (LLM)</span>
                         </div>
-                        <div id="el-active-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #51cf66; box-shadow: 0 0 6px #51cf66; display: block;"></div>
                       </div>
-                      <div class="form-group" style="margin-bottom: 12px;">
-                        <label for="cfg-elevenlabs-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 0.78rem;">
-                          <span>API-Key</span>
-                          <button type="button" id="btn-test-elevenlabs" style="font-size: 10px; padding: 2px 7px; height: auto; margin: 0; display: flex; align-items: center; gap: 3px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
-                            <i data-lucide="shield-check" style="width: 10px; height: 10px;"></i> Testen
-                          </button>
-                        </label>
-                        <div class="input-wrapper" style="margin-top: 4px;">
-                          <i data-lucide="key"></i>
-                          <input type="text" id="cfg-elevenlabs-key" placeholder="sk_...">
+                      <div class="input-wrapper">
+                        <select id="cfg-llm-provider" onchange="updateConfigUiState()">
+                          <option value="glm">GLM-5.3 (Z.ai PaaS / Coding Plan)</option>
+                          <option value="gemini">Gemini 2.5 Pro (OpenRouter)</option>
+                          <option value="zhipu">z.ai / Zhipu AI (GLM-5.3 Legacy)</option>
+                          <option value="openrouter">OpenRouter (Gemini Cloud)</option>
+                          <option value="vllm">Lokales vLLM Modell (Selbst gehostet)</option>
+                        </select>
+                      </div>
+                      <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 8px; line-height: 1.4;">
+                        Erstellt didaktische Lehrpläne, Folientexte, Quizfragen und analysiert Folienbilder.
+                      </div>
+                    </div>
+
+                    <!-- 2. Embedding Provider -->
+                    <div class="glass-card" style="padding: 16px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <i data-lucide="database" style="color: var(--accent-secondary); width: 18px; height: 18px;"></i>
+                          <span style="font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">2. Vektorsuche & KI-Tutor (Embeddings)</span>
                         </div>
-                        <div id="elevenlabs-test-status" style="font-size: 10px; margin-top: 4px; font-weight: 500; display: none;"></div>
                       </div>
-                      <div class="form-group" style="margin-bottom: 0;">
-                        <label for="cfg-elevenlabs-voice" style="font-size: 0.78rem;">Voice ID</label>
-                        <div class="input-wrapper" style="margin-top: 4px;">
-                          <i data-lucide="mic"></i>
-                          <input type="text" id="cfg-elevenlabs-voice" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM">
+                      <div class="input-wrapper">
+                        <select id="cfg-embedding-provider" onchange="updateConfigUiState()">
+                          <option value="local">Lokales Modell (all-MiniLM-L6-v2) – 100% Kostenlos & Offline</option>
+                          <option value="zhipu">z.ai Embedding (embedding-3, 384d)</option>
+                          <option value="openrouter">OpenRouter (OpenAI text-embedding-3-small)</option>
+                        </select>
+                      </div>
+                      <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 8px; line-height: 1.4;">
+                        Wandelt Kursinhalte in 384d-Vektoren (MiniLM-nativ) um, damit der KI-Tutor Fragen zum Kurs beantworten kann.
+                      </div>
+                    </div>
+
+                    <!-- 3. Audio / TTS -->
+                    <div class="glass-card" style="padding: 16px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <i data-lucide="volume-2" style="color: #a78bfa; width: 18px; height: 18px;"></i>
+                          <span style="font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">3. Sprachausgabe (TTS-Audio)</span>
+                        </div>
+                      </div>
+                      <div class="input-wrapper">
+                        <select id="cfg-tts-provider" onchange="updateConfigUiState()">
+                          <option value="elevenlabs">ElevenLabs (High-Quality Stimmen)</option>
+                          <option value="minimax">MiniMax (speech-02-hd / Schnelle Stimmen)</option>
+                        </select>
+                      </div>
+                      <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 8px; line-height: 1.4;">
+                        Erzeugt MP3-Tonspuren für jede Folie (wird auch für den MP4-Export genutzt).
+                      </div>
+                    </div>
+
+                    <!-- 4. Video-Modus -->
+                    <div class="glass-card" style="padding: 16px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <i data-lucide="video" style="color: #f43f5e; width: 18px; height: 18px;"></i>
+                          <span style="font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">4. Video- & Avatar-Modus</span>
+                        </div>
+                      </div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div class="input-wrapper">
+                          <select id="cfg-generate-video" onchange="updateConfigUiState()">
+                            <option value="false">Nur Ton (Audio-only / MP4-Export)</option>
+                            <option value="true">Avatar-Video erzeugen</option>
+                          </select>
+                        </div>
+                        <div class="input-wrapper">
+                          <select id="cfg-video-provider" onchange="updateConfigUiState()">
+                            <option value="elevenlabs">ElevenLabs Lip-Sync</option>
+                            <option value="heygen">HeyGen Avatars</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 8px; line-height: 1.4;">
+                        Audio-only nutzt FFmpeg für Folien-MP4; Avatar rendert fotorealistische Sprechervideos.
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <!-- Dynamische Live-Status Übersicht -->
+                  <div class="cfg-checklist-box">
+                    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <i data-lucide="shield-check" style="color: var(--accent-primary); width: 18px; height: 18px;"></i>
+                        <h4 style="margin: 0; font-size: 0.92rem; color: var(--text-primary);">Bereitschafts-Check für deine aktuelle Auswahl</h4>
+                      </div>
+                      <span id="cfg-overall-status-text" style="font-size: 0.82rem; font-weight: 600; padding: 3px 10px; border-radius: 12px; background: rgba(16,185,129,0.15); color: #10b981;">Bereit</span>
+                    </div>
+                    
+                    <div class="cfg-checklist-grid">
+                      <!-- LLM Check Item -->
+                      <div class="cfg-checklist-item" id="chk-llm-item">
+                        <div class="cfg-checklist-dot cfg-dot-green" id="chk-llm-dot"></div>
+                        <div style="flex:1">
+                          <div style="font-weight: 600; color: #fff;" id="chk-llm-title">LLM: z.ai</div>
+                          <div style="font-size: 0.74rem; color: var(--text-secondary);" id="chk-llm-desc">Key prüfen...</div>
+                        </div>
+                      </div>
+
+                      <!-- Embedding Check Item -->
+                      <div class="cfg-checklist-item" id="chk-emb-item">
+                        <div class="cfg-checklist-dot cfg-dot-green" id="chk-emb-dot"></div>
+                        <div style="flex:1">
+                          <div style="font-weight: 600; color: #fff;" id="chk-emb-title">Embeddings: Lokal</div>
+                          <div style="font-size: 0.74rem; color: var(--text-secondary);" id="chk-emb-desc">Kostenlos (Kein Key nötig)</div>
+                        </div>
+                      </div>
+
+                      <!-- TTS Check Item -->
+                      <div class="cfg-checklist-item" id="chk-tts-item">
+                        <div class="cfg-checklist-dot cfg-dot-green" id="chk-tts-dot"></div>
+                        <div style="flex:1">
+                          <div style="font-weight: 600; color: #fff;" id="chk-tts-title">TTS: ElevenLabs</div>
+                          <div style="font-size: 0.74rem; color: var(--text-secondary);" id="chk-tts-desc">Key prüfen...</div>
+                        </div>
+                      </div>
+
+                      <!-- Video Check Item -->
+                      <div class="cfg-checklist-item" id="chk-video-item">
+                        <div class="cfg-checklist-dot cfg-dot-green" id="chk-video-dot"></div>
+                        <div style="flex:1">
+                          <div style="font-weight: 600; color: #fff;" id="chk-video-title">Video: Audio-only</div>
+                          <div style="font-size: 0.74rem; color: var(--text-secondary);" id="chk-video-desc">Kein Extra-Key nötig</div>
                         </div>
                       </div>
                     </div>
 
-                    <!-- MiniMax Card -->
-                    <div id="card-minimax" class="glass-card" style="padding: 16px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); position: relative; transition: border-color 0.3s;">
-                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                          <i data-lucide="zap" style="color: #fb923c; width: 16px; height: 16px;"></i>
-                          <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">MiniMax</span>
-                          <span style="font-size: 9px; background: rgba(251,146,60,0.15); border: 1px solid rgba(251,146,60,0.3); color: #fb923c; padding: 1px 6px; border-radius: 10px;">~$0.18–0.36 / 1M Zeichen</span>
-                        </div>
-                        <div id="mm-active-dot" style="width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.15); display: block;"></div>
+                    <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center;">
+                      <span style="font-size: 0.78rem; color: var(--text-secondary);">
+                        <i data-lucide="info" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> 
+                        Klicke auf Weiter, um nur die dafür benötigten Keys einzutragen oder zu testen.
+                      </span>
+                      <button type="button" class="btn btn-primary" onclick="switchConfigStep(2)" style="display: flex; align-items: center; gap: 6px;">
+                        Weiter zu Schritt 2: Zugangsdaten <i data-lucide="arrow-right"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ================= SCHRITT 2: KONTEXTSENSITIVE ZUGANGSDATEN ================= -->
+                <div id="cfg-step-2-content" class="hidden">
+                  
+                  <div style="background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.25); border-radius: 10px; padding: 12px 16px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <i data-lucide="sliders" style="color: var(--accent-primary); width: 20px; height: 20px;"></i>
+                      <div style="font-size: 0.84rem; color: #e9d5ff;">
+                        Hier siehst du <strong>ausschließlich die Keys und Einstellungen</strong>, die du in Schritt 1 aktiviert hast.
                       </div>
-                      <div class="form-group" style="margin-bottom: 12px;">
-                        <label for="cfg-minimax-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 0.78rem;">
-                          <span>API-Key</span>
-                          <button type="button" id="btn-test-minimax" style="font-size: 10px; padding: 2px 7px; height: auto; margin: 0; display: flex; align-items: center; gap: 3px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
-                            <i data-lucide="shield-check" style="width: 10px; height: 10px;"></i> Testen
-                          </button>
-                        </label>
-                        <div class="input-wrapper" style="margin-top: 4px;">
-                          <i data-lucide="key"></i>
-                          <input type="text" id="cfg-minimax-key" placeholder="eyJ...">
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="switchConfigStep(1)" style="font-size: 11px; padding: 4px 10px;">
+                      <i data-lucide="edit-3"></i> Auswahl anpassen
+                    </button>
+                  </div>
+
+                  <div id="cfg-cards-container">
+
+                    <!-- CARD: Z.AI / ZHIPU AI -->
+                    <div id="card-dyn-zhipu" class="cfg-card-dynamic">
+                      <div class="cfg-card-header">
+                        <div class="cfg-card-title">
+                          <i data-lucide="cpu" style="color: var(--accent-primary);"></i>
+                          <span>z.ai / Zhipu AI (GLM)</span>
+                          <span style="font-size: 10px; background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3); color: #c084fc; padding: 1px 6px; border-radius: 10px;">Benötigt für LLM & Vision</span>
                         </div>
-                        <div id="minimax-test-status" style="font-size: 10px; margin-top: 4px; font-weight: 500; display: none;"></div>
+                        <span id="badge-dyn-zhipu" class="cfg-card-status-badge" style="background: rgba(255,255,255,0.06); color: #aaa;">
+                          <i data-lucide="help-circle" style="width: 12px; height: 12px;"></i> Status prüfen
+                        </span>
                       </div>
-                      <div class="form-group" style="margin-bottom: 12px;">
-                        <label for="cfg-minimax-group" style="font-size: 0.78rem;">Group ID</label>
-                        <div class="input-wrapper" style="margin-top: 4px;">
-                          <i data-lucide="users"></i>
-                          <input type="text" id="cfg-minimax-group" placeholder="123456789">
+                      
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                        <div class="form-group" style="grid-column: span 2; margin-bottom: 0;">
+                          <label for="cfg-zhipu-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 0.82rem;">
+                            <span>z.ai API-Key</span>
+                            <button type="button" id="btn-test-zhipu" style="font-size: 11px; padding: 2px 8px; height: auto; margin: 0; display: flex; align-items: center; gap: 4px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
+                              <i data-lucide="shield-check" style="width: 12px; height: 12px;"></i> Key testen
+                            </button>
+                          </label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="key"></i>
+                            <input type="text" id="cfg-zhipu-key" placeholder="z.ai API-Key hier einfügen" oninput="updateConfigUiState()">
+                          </div>
+                          <div id="zhipu-test-status" style="font-size: 11px; margin-top: 4px; font-weight: 500; display: none;"></div>
                         </div>
-                      </div>
-                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+
                         <div class="form-group" style="margin-bottom: 0;">
-                          <label for="cfg-minimax-voice" style="font-size: 0.78rem;">Voice ID</label>
+                          <label for="cfg-zhipu-model" style="font-size: 0.8rem;">Text-Modell (Lehrplan/Lektionen)</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="box"></i>
+                            <input type="text" id="cfg-zhipu-model" placeholder="glm-5.3">
+                          </div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-zhipu-vision-model" style="font-size: 0.8rem;">Vision-Modell (Folienanalyse)</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="eye"></i>
+                            <input type="text" id="cfg-zhipu-vision-model" placeholder="glm-5.3-flash">
+                          </div>
+                        </div>
+
+                        <div class="form-group" style="grid-column: span 2; margin-bottom: 0;">
+                          <label for="cfg-zhipu-embedding-model" style="font-size: 0.8rem;">Embedding-Modell</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="database"></i>
+                            <input type="text" id="cfg-zhipu-embedding-model" placeholder="embedding-3">
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- CARD: OPENROUTER -->
+                    <div id="card-dyn-openrouter" class="cfg-card-dynamic">
+                      <div class="cfg-card-header">
+                        <div class="cfg-card-title">
+                          <i data-lucide="cloud" style="color: var(--accent-secondary);"></i>
+                          <span>OpenRouter (Cloud)</span>
+                          <span style="font-size: 10px; background: rgba(6,182,212,0.15); border: 1px solid rgba(6,182,212,0.3); color: #06b6d4; padding: 1px 6px; border-radius: 10px;">Benötigt für LLM</span>
+                        </div>
+                        <span id="badge-dyn-openrouter" class="cfg-card-status-badge" style="background: rgba(255,255,255,0.06); color: #aaa;">
+                          <i data-lucide="help-circle" style="width: 12px; height: 12px;"></i> Status prüfen
+                        </span>
+                      </div>
+
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                        <div class="form-group" style="grid-column: span 2; margin-bottom: 0;">
+                          <label for="cfg-openrouter-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 0.82rem;">
+                            <span>OpenRouter API-Key</span>
+                            <button type="button" id="btn-test-openrouter" style="font-size: 11px; padding: 2px 8px; height: auto; margin: 0; display: flex; align-items: center; gap: 4px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
+                              <i data-lucide="shield-check" style="width: 12px; height: 12px;"></i> Key testen
+                            </button>
+                          </label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="key"></i>
+                            <input type="text" id="cfg-openrouter-key" placeholder="sk-or-..." oninput="updateConfigUiState()">
+                          </div>
+                          <div id="openrouter-test-status" style="font-size: 11px; margin-top: 4px; font-weight: 500; display: none;"></div>
+                        </div>
+
+                        <div class="form-group" style="grid-column: span 2; margin-bottom: 0;">
+                          <label for="cfg-openrouter-model" style="font-size: 0.8rem;">OpenRouter Modell</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="box"></i>
+                            <input type="text" id="cfg-openrouter-model" placeholder="google/gemini-2.5-pro">
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- CARD: VLLM -->
+                    <div id="card-dyn-vllm" class="cfg-card-dynamic">
+                      <div class="cfg-card-header">
+                        <div class="cfg-card-title">
+                          <i data-lucide="server" style="color: #10b981;"></i>
+                          <span>Lokaler vLLM Server</span>
+                          <span style="font-size: 10px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #10b981; padding: 1px 6px; border-radius: 10px;">Self-Hosted</span>
+                        </div>
+                      </div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-vllm-url" style="font-size: 0.8rem;">vLLM Base URL</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="link"></i>
+                            <input type="text" id="cfg-vllm-url" placeholder="http://localhost:8000/v1">
+                          </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-vllm-model" style="font-size: 0.8rem;">vLLM Modellname</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="box"></i>
+                            <input type="text" id="cfg-vllm-model" placeholder="meta-llama/Meta-Llama-3-8B-Instruct">
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- CARD: ELEVENLABS -->
+                    <div id="card-dyn-elevenlabs" class="cfg-card-dynamic">
+                      <div class="cfg-card-header">
+                        <div class="cfg-card-title">
+                          <i data-lucide="volume-2" style="color: #a78bfa;"></i>
+                          <span>ElevenLabs Audio (TTS)</span>
+                          <span style="font-size: 10px; background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.3); color: #a78bfa; padding: 1px 6px; border-radius: 10px;">Sprachsynthese</span>
+                        </div>
+                        <span id="badge-dyn-elevenlabs" class="cfg-card-status-badge" style="background: rgba(255,255,255,0.06); color: #aaa;">
+                          <i data-lucide="help-circle" style="width: 12px; height: 12px;"></i> Status prüfen
+                        </span>
+                      </div>
+
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-elevenlabs-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 0.82rem;">
+                            <span>ElevenLabs API-Key</span>
+                            <button type="button" id="btn-test-elevenlabs" style="font-size: 11px; padding: 2px 8px; height: auto; margin: 0; display: flex; align-items: center; gap: 4px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
+                              <i data-lucide="shield-check" style="width: 12px; height: 12px;"></i> Key testen
+                            </button>
+                          </label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="key"></i>
+                            <input type="text" id="cfg-elevenlabs-key" placeholder="sk_..." oninput="updateConfigUiState()">
+                          </div>
+                          <div id="elevenlabs-test-status" style="font-size: 11px; margin-top: 4px; font-weight: 500; display: none;"></div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-elevenlabs-voice" style="font-size: 0.8rem;">Standard Voice ID</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="mic"></i>
+                            <input type="text" id="cfg-elevenlabs-voice" placeholder="z.B. 21m00Tcm4TlvDq8ikWAM">
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- CARD: MINIMAX -->
+                    <div id="card-dyn-minimax" class="cfg-card-dynamic">
+                      <div class="cfg-card-header">
+                        <div class="cfg-card-title">
+                          <i data-lucide="zap" style="color: #fb923c;"></i>
+                          <span>MiniMax Audio (TTS)</span>
+                          <span style="font-size: 10px; background: rgba(251,146,60,0.15); border: 1px solid rgba(251,146,60,0.3); color: #fb923c; padding: 1px 6px; border-radius: 10px;">Sprachsynthese</span>
+                        </div>
+                        <span id="badge-dyn-minimax" class="cfg-card-status-badge" style="background: rgba(255,255,255,0.06); color: #aaa;">
+                          <i data-lucide="help-circle" style="width: 12px; height: 12px;"></i> Status prüfen
+                        </span>
+                      </div>
+
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-minimax-key" style="display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 0.82rem;">
+                            <span>MiniMax API-Key</span>
+                            <button type="button" id="btn-test-minimax" style="font-size: 11px; padding: 2px 8px; height: auto; margin: 0; display: flex; align-items: center; gap: 4px; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #fff; cursor: pointer; transition: background 0.2s;">
+                              <i data-lucide="shield-check" style="width: 12px; height: 12px;"></i> Key testen
+                            </button>
+                          </label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="key"></i>
+                            <input type="text" id="cfg-minimax-key" placeholder="eyJ..." oninput="updateConfigUiState()">
+                          </div>
+                          <div id="minimax-test-status" style="font-size: 11px; margin-top: 4px; font-weight: 500; display: none;"></div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-minimax-group" style="font-size: 0.8rem;">Group ID</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="users"></i>
+                            <input type="text" id="cfg-minimax-group" placeholder="123456789" oninput="updateConfigUiState()">
+                          </div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-minimax-voice" style="font-size: 0.8rem;">Stimme</label>
                           <div class="input-wrapper" style="margin-top: 4px;">
                             <i data-lucide="mic"></i>
                             <select id="cfg-minimax-voice">
@@ -551,106 +1117,252 @@
                               <option value="German_PlayfulMan">German_PlayfulMan (Deutsch - verspielt, männl.)</option>
                               <option value="male-qn-qingse">male-qn-qingse (Chinesisch - jung/sanft, männl.)</option>
                               <option value="female-shaonv">female-shaonv (Chinesisch - jung/hell, weibl.)</option>
-                              <option value="male-qn-badao">male-qn-badao (Chinesisch - tief, männl.)</option>
-                              <option value="female-yujie">female-yujie (Chinesisch - reif, weibl.)</option>
                               <option value="audiobook_male_1">audiobook_male_1 (Englisch - Hörbuch, männl.)</option>
-                              <option value="audiobook_female_1">audiobook_female_1 (Englisch - Hörbuch, weibl.)</option>
                             </select>
                           </div>
                         </div>
+
                         <div class="form-group" style="margin-bottom: 0;">
-                          <label for="cfg-minimax-model" style="font-size: 0.78rem;">Modell</label>
+                          <label for="cfg-minimax-model" style="font-size: 0.8rem;">Modell</label>
                           <div class="input-wrapper" style="margin-top: 4px;">
                             <i data-lucide="cpu"></i>
                             <select id="cfg-minimax-model">
                               <option value="speech-02-hd">speech-02-hd (Qualität)</option>
-                              <option value="speech-02-turbo">speech-02-turbo (Schnell/Günstig)</option>
+                              <option value="speech-02-turbo">speech-02-turbo (Schnell)</option>
                             </select>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                  </div>
-                </div>
-
-                <!-- HeyGen -->
-                <div class="form-group">
-                  <label for="cfg-heygen-url">HeyGen API URL</label>
-                  <div class="input-wrapper">
-                    <i data-lucide="video"></i>
-                    <input type="text" id="cfg-heygen-url" placeholder="https://api.heygen.com">
-                  </div>
-                </div>
-
-                <div class="form-group">
-                  <label for="cfg-heygen-key">HeyGen API-Key</label>
-                  <div class="input-wrapper">
-                    <i data-lucide="key"></i>
-                    <input type="text" id="cfg-heygen-key" placeholder="HeyGen Video Key">
-                  </div>
-                </div>
-
-                <div class="usage-stats-section" style="grid-column: span 2; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px;">
-                  <h4 style="margin-bottom: 12px; font-size: 0.9rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
-                    <i data-lucide="bar-chart-3" style="width: 16px; height: 16px;"></i> Verbrauchs- & Kostenübersicht
-                  </h4>
-                  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
-                    <!-- OpenRouter Status -->
-                    <div class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
-                      <i data-lucide="wallet" style="color: var(--accent-secondary); width: 22px; height: 22px;"></i>
-                      <div>
-                        <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">OpenRouter Kosten</div>
-                        <div id="stat-openrouter-usage" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 2px;">Lade...</div>
+                    <!-- CARD: HEYGEN -->
+                    <div id="card-dyn-heygen" class="cfg-card-dynamic">
+                      <div class="cfg-card-header">
+                        <div class="cfg-card-title">
+                          <i data-lucide="video" style="color: #f43f5e;"></i>
+                          <span>HeyGen KI-Avatar Video</span>
+                          <span style="font-size: 10px; background: rgba(244,63,94,0.15); border: 1px solid rgba(244,63,94,0.3); color: #f43f5e; padding: 1px 6px; border-radius: 10px;">Avatar Rendering</span>
+                        </div>
+                      </div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-heygen-url" style="font-size: 0.8rem;">HeyGen API URL</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="link"></i>
+                            <input type="text" id="cfg-heygen-url" placeholder="https://api.heygen.com">
+                          </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                          <label for="cfg-heygen-key" style="font-size: 0.8rem;">HeyGen API-Key</label>
+                          <div class="input-wrapper" style="margin-top: 4px;">
+                            <i data-lucide="key"></i>
+                            <input type="text" id="cfg-heygen-key" placeholder="HeyGen Video Key">
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <!-- ElevenLabs Status -->
-                    <div class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
-                      <i data-lucide="volume-2" style="color: var(--accent-primary); width: 22px; height: 22px;"></i>
-                      <div>
-                        <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">ElevenLabs Zeichen</div>
-                        <div id="stat-elevenlabs-usage" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 2px;">Lade...</div>
-                      </div>
-                    </div>
-                    <!-- MiniMax Status -->
-                    <div class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
-                      <i data-lucide="zap" style="color: #fb923c; width: 22px; height: 22px;"></i>
-                      <div>
-                        <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">MiniMax Guthaben</div>
-                        <div id="stat-minimax-usage" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 2px;">Lade...</div>
-                      </div>
-                    </div>
+
                   </div>
+
+                  <!-- Footer Buttons in Step 2 -->
+                  <div style="display: flex; gap: 12px; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+                    <button type="button" class="btn btn-secondary" onclick="switchConfigStep(1)" style="display: flex; align-items: center; gap: 6px;">
+                      <i data-lucide="arrow-left"></i> Zurück zu Schritt 1 (Bedarfs-Auswahl)
+                    </button>
+                    <button type="submit" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px;">
+                      Alle Konfigurationen speichern <i data-lucide="save"></i>
+                    </button>
+                  </div>
+
                 </div>
 
-                <button type="submit" class="btn btn-primary" style="grid-column: span 2;">
-                  KI-Konfiguration speichern <i data-lucide="save"></i>
-                </button>
               </form>
+
+              <!-- Verbrauchs- & Kostenübersicht -->
+              <div class="usage-stats-section" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+                <h4 style="margin-bottom: 12px; font-size: 0.88rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                  <i data-lucide="bar-chart-3" style="width: 16px; height: 16px;"></i> Aktuelle Verbrauchs- & Kostenübersicht
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+                  <div class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                    <i data-lucide="wallet" style="color: var(--accent-secondary); width: 22px; height: 22px;"></i>
+                    <div>
+                      <div id="stat-llm-title" style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">LLM Plan / Verbrauch</div>
+                      <div id="stat-openrouter-usage" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 2px;">Lade...</div>
+                    </div>
+                  </div>
+                  <div class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                    <i data-lucide="volume-2" style="color: var(--accent-primary); width: 22px; height: 22px;"></i>
+                    <div>
+                      <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">ElevenLabs Zeichen</div>
+                      <div id="stat-elevenlabs-usage" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 2px;">Lade...</div>
+                    </div>
+                  </div>
+                  <div class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                    <i data-lucide="zap" style="color: #fb923c; width: 22px; height: 22px;"></i>
+                    <div>
+                      <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">MiniMax Status</div>
+                      <div id="stat-minimax-usage" style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-top: 2px;">Lade...</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
-        </div>
 
-        <!-- Course management table -->
-        <div class="glass-card table-card">
-          <h3><i data-lucide="list"></i> Generierte Kurse & Freigaben</h3>
-          <div class="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Thema</th>
-                  <th>Pipeline</th>
-                  <th>Status</th>
-                  <th>Erstellt am</th>
-                  <th>Aktion</th>
-                </tr>
-              </thead>
-              <tbody id="admin-courses-table-body">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
+          <!-- Prompt-Vorlagen & Didaktische Schablonen Manager -->
+          <div id="admin-prompts-card" class="glass-card admin-control-card" style="grid-column: span 2; margin-top: 10px;">
+            <div id="admin-prompts-header" class="card-header-toggle" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(139, 92, 246, 0.2); display: flex; align-items: center; justify-content: center; color: var(--accent-primary);">
+                  <i data-lucide="file-code-2" style="width: 20px; height: 20px;"></i>
+                </div>
+                <div>
+                  <h3 style="margin: 0; font-size: 1.1rem; color: #fff; display: flex; align-items: center; gap: 8px;">
+                    Prompt-Vorlagen & didaktische Schablonen verwalten
+                  </h3>
+                  <p style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-secondary);">
+                    Passe System- und User-Prompts für alle Course Factory Agenten und Studio KI-Dienste an. Platzhalter wie {topic} werden dynamisch eingesetzt.
+                  </p>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span id="prompts-badge-count" class="badge" style="background: rgba(139, 92, 246, 0.15); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.3); font-size: 0.78rem;">
+                  8 Schablonen
+                </span>
+                <i id="prompts-chevron" data-lucide="chevron-down" style="transition: transform 0.3s ease;"></i>
+              </div>
+            </div>
+
+            <div id="prompts-collapse-content" class="hidden" style="margin-top: 16px;">
+              <!-- Category Filter Tabs -->
+              <div class="prompts-filter-bar" style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary btn-sm active prompt-filter-btn" data-filter="all" onclick="filterPromptCategory('all', this)">
+                  Alle Schablonen (<span id="count-all-prompts">8</span>)
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm prompt-filter-btn" data-filter="Course Factory" onclick="filterPromptCategory('Course Factory', this)">
+                  Course Factory Multi-Agent (5)
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm prompt-filter-btn" data-filter="Studio" onclick="filterPromptCategory('Studio', this)">
+                  Studio &amp; AI-Service (3)
+                </button>
+              </div>
+
+              <!-- Main Prompt Editor Workspace -->
+              <div class="prompts-workspace-grid">
+                <!-- Left: List of Prompts -->
+                <div class="prompts-sidebar-card">
+                  <div class="prompts-search-wrapper" style="margin-bottom: 10px;">
+                    <div class="input-wrapper" style="font-size: 0.85rem;">
+                      <i data-lucide="search" style="width: 14px; height: 14px;"></i>
+                      <input type="text" id="prompt-search-input" placeholder="Prompt suchen..." oninput="onPromptSearchChange(this.value)">
+                    </div>
+                  </div>
+                  <div id="prompts-list-container" class="prompts-list-scroll">
+                    <!-- Populated dynamically -->
+                    <div style="padding: 16px; text-align: center; color: var(--text-secondary); font-size: 0.85rem;">
+                      Lade Prompt-Schablonen...
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Right: Active Prompt Editor -->
+                <div class="prompts-detail-card" id="prompt-editor-pane">
+                  <!-- Meta Header -->
+                  <div class="prompt-meta-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px; margin-bottom: 14px;">
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <h4 id="pe-title" style="margin: 0; font-size: 1.05rem; color: #fff;">Vorlage wählen</h4>
+                        <span id="pe-status-badge" class="badge badge-default" style="font-size: 0.72rem;">Standard</span>
+                        <span id="pe-agent-badge" class="badge" style="background: rgba(6,182,212,0.15); color: #67e8f9; border: 1px solid rgba(6,182,212,0.3); font-size: 0.72rem;">Agent</span>
+                      </div>
+                      <p id="pe-desc" style="margin: 6px 0 0 0; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.4;">
+                        Wähle links eine Schablone aus, um die Prompt-Texte einzusehen und zu bearbeiten.
+                      </p>
+                      <div id="pe-model-info" style="margin-top: 4px; font-size: 0.75rem; color: #a78bfa;">
+                        Empfohlenes Modell: <span id="pe-model-name" style="font-weight: 600; color: #fff;">-</span>
+                      </div>
+                    </div>
+                    <div style="display: flex; gap: 8px; flex-shrink: 0; align-items: center;">
+                      <button type="button" id="btn-save-prompt" class="btn btn-primary btn-sm" onclick="saveActivePrompt()" style="display: flex; align-items: center; gap: 6px;">
+                        <i data-lucide="save"></i> Speichern
+                      </button>
+                      <button type="button" id="btn-reset-prompt" class="btn btn-secondary btn-sm" onclick="resetActivePrompt()" style="display: flex; align-items: center; gap: 6px;" title="Auf Standardwerte zurücksetzen">
+                        <i data-lucide="rotate-ccw"></i> Zurücksetzen
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Notification Toast for Save/Reset -->
+                  <div id="pe-toast" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; margin-bottom: 10px;"></div>
+
+                  <!-- Variables helper toolbar -->
+                  <div class="prompt-variables-box" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                      <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 5px;">
+                        <i data-lucide="variable" style="width: 13px; height: 13px; color: var(--accent-secondary);"></i>
+                        Verfügbare Variablen (Klick zum Einfügen an Cursor-Position)
+                      </span>
+                      <span style="font-size: 0.72rem; color: #94a3b8;">Fokus: <strong id="pe-active-target" style="color: #fff;">User Prompt</strong></span>
+                    </div>
+                    <div id="pe-variables-list" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                      <!-- Populated dynamically -->
+                    </div>
+                  </div>
+
+                  <!-- Editors -->
+                  <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <!-- System Prompt -->
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <label for="pe-system-prompt" style="font-size: 0.82rem; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 6px;">
+                          <i data-lucide="shield" style="width: 14px; height: 14px; color: var(--accent-primary);"></i>
+                          System-Prompt (Rolle, Didaktik &amp; Formatregeln)
+                        </label>
+                        <span id="pe-sys-count" style="font-size: 0.72rem; color: var(--text-secondary);">0 Zeichen</span>
+                      </div>
+                      <textarea id="pe-system-prompt" class="prompt-code-textarea" rows="4" placeholder="System Prompt eingeben..." onfocus="setActivePromptTextarea('system')" oninput="updatePromptCharCount('system')"></textarea>
+                    </div>
+
+                    <!-- User Prompt Template -->
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <label for="pe-user-prompt" style="font-size: 0.82rem; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 6px;">
+                          <i data-lucide="message-square" style="width: 14px; height: 14px; color: var(--accent-secondary);"></i>
+                          User-Prompt Schablone (Aufgabenstellung mit {variablen})
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                          <button type="button" class="btn btn-secondary btn-sm" onclick="togglePromptPreview()" style="font-size: 11px; padding: 2px 8px; height: auto;">
+                            <i data-lucide="eye" style="width: 12px; height: 12px;"></i> <span id="pe-preview-btn-text">Test-Vorschau anzeigen</span>
+                          </button>
+                          <span id="pe-usr-count" style="font-size: 0.72rem; color: var(--text-secondary);">0 Zeichen</span>
+                        </div>
+                      </div>
+                      <textarea id="pe-user-prompt" class="prompt-code-textarea" rows="8" placeholder="User Prompt Schablone mit {platzhaltern}..." onfocus="setActivePromptTextarea('user')" oninput="updatePromptCharCount('user')"></textarea>
+                    </div>
+
+                    <!-- Live Preview Panel (collapsible) -->
+                    <div id="pe-preview-box" class="hidden" style="background: rgba(0,0,0,0.4); border: 1px solid rgba(6,182,212,0.3); border-radius: 8px; padding: 12px; margin-top: 4px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 0.78rem; font-weight: 600; color: var(--accent-secondary); display: flex; align-items: center; gap: 6px;">
+                          <i data-lucide="sparkles" style="width: 14px; height: 14px;"></i> Live-Test-Vorschau (Aufgelöste Variablen)
+                        </span>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="refreshPromptPreview()" style="font-size: 11px; padding: 2px 8px; height: auto;">
+                          <i data-lucide="refresh-cw" style="width: 11px; height: 11px;"></i> Neu rendern
+                        </button>
+                      </div>
+                      <div id="pe-preview-content" style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #cbd5e1; white-space: pre-wrap; max-height: 220px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                        Lade Vorschau...
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
           </div>
-        </div>
       </div>
     </div>
   </div>
@@ -673,11 +1385,24 @@
         <button class="btn btn-secondary btn-sm" id="pptx-btn-all-tts" onclick="pptxGenerateAllTts()">
           <i data-lucide="volume-2"></i> Alle Folien vertonen
         </button>
+        <button class="btn btn-primary btn-sm" id="pptx-btn-export-mp4" onclick="exportCourseMp4(pptxStudio.courseId)">
+          <i data-lucide="download"></i> Als MP4 exportieren
+        </button>
         <span id="pptx-studio-batch-status" class="pptx-batch-status"></span>
         <div style="flex:1"></div>
         <button class="btn btn-primary btn-sm" id="pptx-btn-approve" onclick="pptxApproveIfReady()">
           <i data-lucide="check-square"></i> Freigeben
         </button>
+      </div>
+
+      <div id="pptx-export-progress" class="pptx-export-progress hidden" aria-live="polite">
+        <div class="pptx-export-progress-top">
+          <span id="pptx-export-progress-label">MP4-Export…</span>
+          <span id="pptx-export-progress-percent">0%</span>
+        </div>
+        <div class="pptx-export-progress-track">
+          <div id="pptx-export-progress-bar" class="pptx-export-progress-bar" style="width: 0%"></div>
+        </div>
       </div>
 
       <div class="pptx-studio-body">
@@ -765,6 +1490,20 @@
             </button>
           </div>
 
+          <!-- Step 1 Generation Progress -->
+          <div id="wz-step1-progress-box" class="hidden" style="margin-bottom: 16px; padding: 14px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(139,92,246,0.35); box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-bottom: 8px;">
+              <span id="wz-step1-progress-text" style="color: #fff; font-weight: 500; display: flex; align-items: center; gap: 8px;">
+                <i data-lucide="loader-2" class="spin" style="width: 15px; height: 15px; color: #c084fc;"></i>
+                <span>Lehrplan wird konzipiert...</span>
+              </span>
+              <span id="wz-step1-progress-percent" style="font-weight: 700; color: #c084fc; font-feature-settings: 'tnum';">10%</span>
+            </div>
+            <div style="width: 100%; height: 6px; background: rgba(0,0,0,0.4); border-radius: 3px; overflow: hidden;">
+              <div id="wz-step1-progress-bar" style="width: 10%; height: 100%; background: linear-gradient(90deg, #8b5cf6, #06b6d4); border-radius: 3px; transition: width 0.4s ease;"></div>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>Generierter Lehrplan & Folien (Direkt editierbar)</label>
             <div id="wz-curriculum-editor" style="display: flex; flex-direction: column; gap: 16px; margin-top: 8px;">
@@ -829,7 +1568,12 @@
       <!-- Action Footer -->
       <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; flex-shrink: 0;">
         <button class="btn btn-secondary" id="wz-btn-prev" onclick="wizardPrevStep()" disabled>Zurück</button>
-        <button class="btn btn-primary" id="wz-btn-next" onclick="wizardNextStep()">Weiter</button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button class="btn btn-secondary hidden" id="wz-btn-finish-concept" onclick="finishConceptOnly()" style="border-color: #34d399; color: #34d399;">
+            <i data-lucide="check"></i> Konzept speichern & abschließen
+          </button>
+          <button class="btn btn-primary" id="wz-btn-next" onclick="wizardNextStep()">Weiter</button>
+        </div>
       </div>
     </div>
   </div>
@@ -918,8 +1662,99 @@
   </div>
 
 
+  <!-- Didactic Concept Preview Modal (Option C) -->
+  <div id="modal-concept-preview" class="modal hidden" style="z-index: 1100;">
+    <div class="modal-content glass-card" style="width: 90vw; max-width: 960px; max-height: 88vh; padding: 0; overflow: hidden; display: flex; flex-direction: column; border: 1px solid rgba(16, 185, 129, 0.3); box-shadow: 0 20px 50px rgba(0,0,0,0.6), 0 0 30px rgba(16, 185, 129, 0.15);">
+      <!-- Header -->
+      <div style="background: rgba(16, 185, 129, 0.08); padding: 18px 24px; border-bottom: 1px solid rgba(16, 185, 129, 0.2); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+            <span class="concept-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border-color: #34d399; font-size: 0.75rem; padding: 2px 10px;">
+              <i data-lucide="compass" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 4px;"></i>Didaktisches Rahmenkonzept
+            </span>
+            <span id="concept-modal-duration-tag" style="color: var(--text-secondary); font-size: 0.8rem;"></span>
+          </div>
+          <h3 id="concept-modal-title" style="margin: 0; color: #fff; font-size: 1.25rem; font-weight: 700; line-height: 1.3;">
+            Kurstitel wird geladen...
+          </h3>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="closeConceptModal()" style="width: auto; padding: 6px 12px; margin: 0;">
+          <i data-lucide="x"></i> Schließen
+        </button>
+      </div>
+
+      <!-- Scrollable Body -->
+      <div id="concept-modal-body" style="padding: 24px; overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 20px; background: rgba(11, 15, 25, 0.65);">
+        <!-- Quick Stats Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: #34d399; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 4px;">Gesamtaufwand</div>
+            <div id="concept-modal-ue" style="font-size: 1.1rem; font-weight: 700; color: #fff;">-- UE</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: #34d399; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 4px;">Zielgruppe</div>
+            <div id="concept-modal-target" style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.4;">--</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: #34d399; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 4px;">Voraussetzungen</div>
+            <div id="concept-modal-prereq" style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.4;">--</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: #34d399; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 4px;">Didaktischer Ansatz</div>
+            <div id="concept-modal-didactic" style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.4;">--</div>
+          </div>
+        </div>
+
+        <!-- Executive Summary -->
+        <div style="background: rgba(16, 185, 129, 0.04); border-left: 3px solid #10b981; border-radius: 4px 8px 8px 4px; padding: 14px 18px;">
+          <h4 style="margin: 0 0 6px 0; color: #34d399; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+            <i data-lucide="book-open" style="width: 16px; height: 16px;"></i> Pädagogische Leitidee & Zielsetzung
+          </h4>
+          <p id="concept-modal-summary" style="margin: 0; color: #e2e8f0; font-size: 0.88rem; line-height: 1.5;"></p>
+        </div>
+
+        <!-- Weekly Modules / Lessons Container -->
+        <div>
+          <h4 style="margin: 0 0 12px 0; color: #fff; font-size: 1rem; display: flex; align-items: center; gap: 8px;">
+            <i data-lucide="calendar" style="width: 18px; height: 18px; color: #34d399;"></i> Modulare Wochenpläne & Kompetenzziele
+          </h4>
+          <div id="concept-modal-modules-list" style="display: flex; flex-direction: column; gap: 14px;">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Footer -->
+      <div style="background: rgba(255,255,255,0.03); border-top: 1px solid rgba(255,255,255,0.08); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #94a3b8;">
+          <i data-lucide="file-check-2" style="color: #34d399; width: 16px; height: 16px;"></i>
+          <span>Vollständiges didaktisches Konzept & Modulhandbuch</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button class="btn btn-secondary btn-sm" onclick="closeConceptModal()">Schließen</button>
+          <a id="btn-download-concept-pdf" href="#" target="_blank" class="btn btn-primary" style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-color: #34d399; color: #fff; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px;">
+            <i data-lucide="download"></i> PDF-Konzept herunterladen
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global MP4 export progress (admin list / outside studio) -->
+  <div id="export-progress-toast" class="export-progress-toast hidden" aria-live="polite">
+    <div class="export-progress-toast-head">
+      <i data-lucide="film"></i>
+      <strong>MP4-Export</strong>
+      <span id="export-progress-toast-percent">0%</span>
+    </div>
+    <div id="export-progress-toast-label" class="export-progress-toast-label">Wird vorbereitet…</div>
+    <div class="pptx-export-progress-track">
+      <div id="export-progress-toast-bar" class="pptx-export-progress-bar" style="width: 0%"></div>
+    </div>
+  </div>
+
   <!-- JS Scripts -->
-  <script src="js/app.js?v=12"></script>
+  <script src="js/app.js?v=13"></script>
 </body>
 
 </html>

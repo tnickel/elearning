@@ -21,7 +21,7 @@ const {
 });
 
 // Signals
-export const HeyGenWebhookSignal = defineSignal<{ videoUrl: string; success: boolean }>('HeyGenWebhookSignal');
+export const HeyGenWebhookSignal = defineSignal<[{ videoUrl: string; success: boolean }]>('HeyGenWebhookSignal');
 
 interface WorkflowInput {
   courseId: string;

@@ -15,6 +15,13 @@
       "when": 1784456350626,
       "tag": "0001_burly_veda",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784530650387,
+      "tag": "0002_careless_mantis",
+      "breakpoints": true
     }
   ]
 }

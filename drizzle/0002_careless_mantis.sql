@@ -1,0 +1,1 @@
+ALTER TABLE "courses" ALTER COLUMN "status" SET DEFAULT 'curriculum_draft';

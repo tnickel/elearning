@@ -4,31 +4,50 @@ import crypto from 'crypto';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
+import { spawn, ChildProcess } from 'child_process';
 import { Connection, Client } from '@temporalio/client';
 import { db, withTenant, inList } from '../db';
-import { users, courses, modules, lessons, embeddings } from '../db/schema';
+import { users, courses, modules, lessons, embeddings, activityLogs } from '../db/schema';
 import { eq, desc, asc, sql, and } from 'drizzle-orm';
-import { authenticateToken, generateToken, UserPayload } from './auth';
+import { authenticateToken, generateToken, UserPayload, ensureSecretEnv } from './auth';
 import { recordHeartbeat, verifyHashChain } from './timeTracking';
 import { runMigrations } from '../db/migrations';
 import { OfficeParser } from 'officeparser';
 import { renderPptxToPngs, publishSlideImages, cleanupWorkDir } from './pptxRender';
 import { synthesizeSpeechToFile, computeSlidePipelineStatus } from './tts';
+import { exportCourseToMp4, ExportProgress } from './videoExport';
 
 dotenv.config();
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+const exportJobs = new Set<string>();
 
-const PORT = process.env.PORT || 3000;
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'heygen-webhook-secret-key-12345';
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+const app = express();
+
+// CORS restricted to the configured origins (the frontend is served same-origin anyway).
+const corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3010,http://127.0.0.1:3010')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || corsOrigins.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+}));
+
+// Capture the raw request bytes so webhook HMAC can be computed over the exact
+// payload a provider signed (re-serializing req.body would not match it).
+app.use(express.json({
+  verify: (req: any, _res: any, buf: Buffer) => { req.rawBody = buf; },
+}));
+
+const PORT = process.env.PORT || 3010;
+const WEBHOOK_SECRET = ensureSecretEnv('WEBHOOK_SECRET', ['heygen-webhook-secret-key-12345']);
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8085';
 const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
 const TEMPORAL_QUEUE = process.env.TEMPORAL_QUEUE || 'elearning-tasks';
 
 // Serve static frontend files
 app.use(express.static(path.join(process.cwd(), 'public')));
+app.use('/course_output', express.static(path.join(process.cwd(), 'course_output')));
 
 // Cache for Temporal client
 let temporalClient: Client | null = null;
@@ -43,35 +62,56 @@ async function getTemporalClient(): Promise<Client> {
 
 // ==================== REST ENDPOINTS ====================
 
-// 1. JWT Authentication / User Login or Registration
+// 1. JWT Authentication / User Login or Registration (local demo: email + role picker)
 app.post('/api/auth/login', async (req, res) => {
   const { email, role, tenantId } = req.body;
-  console.log(`[LOGIN ATTEMPT] Email: "${email}", Role: "${role}", TenantId: "${tenantId}"`);
+  console.log(`[LOGIN ATTEMPT] Email: "${email}", Requested Role: "${role}", TenantId: "${tenantId}"`);
 
-  if (!email || !role || !tenantId) {
-    console.warn(`[LOGIN FAILED] Missing fields. Email: ${email}, Role: ${role}, TenantId: ${tenantId}`);
-    return res.status(400).json({ error: 'Email, role, and tenantId are required' });
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
   }
 
   try {
-    // Upsert user
+    const allowedAdminEmails = (process.env.ADMIN_EMAILS || 'admin@tenant-alpha.com')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    const emailLower = String(email).trim().toLowerCase();
+    const isAllowedAdmin = allowedAdminEmails.includes(emailLower);
+    const requestedAdmin = role === 'admin';
+    // Local demo: admin only for whitelisted emails; everyone else stays/becomes student.
+    const assignedRole = requestedAdmin && isAllowedAdmin ? 'admin' : 'student';
+    const assignedTenantId = tenantId || 'de305d54-75b4-431b-adb2-eb6b9e546014';
+
+    if (requestedAdmin && !isAllowedAdmin) {
+      console.warn(
+        `[LOGIN] Admin-Rolle verweigert für "${email}" — nicht in ADMIN_EMAILS. ` +
+          `Nutze z.B. admin@tenant-alpha.com oder setze ADMIN_EMAILS in .env.`
+      );
+    }
+
     let [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-    
+
     if (!user) {
       [user] = await db.insert(users).values({
-        email,
-        role: role as any,
-        tenantId,
+        email: String(email).trim(),
+        role: assignedRole as any,
+        tenantId: assignedTenantId,
       }).returning();
-      console.log(`[LOGIN SUCCESS] Created new user: ${email} for tenant ${tenantId}`);
+      console.log(`[LOGIN SUCCESS] Created new user: ${email} with Role: ${user.role}, Tenant: ${user.tenantId}`);
     } else {
-      // Update tenantId / role if modified
-      await db.update(users)
-        .set({ role: role as any, tenantId })
-        .where(eq(users.id, user.id));
-      user.role = role;
-      user.tenantId = tenantId;
-      console.log(`[LOGIN SUCCESS] Updated existing user: ${email} to Role: ${role}, Tenant: ${tenantId}`);
+      // Update role/tenant for demo login so switching Admin↔Schüler works for
+      // whitelisted admin emails (fixes "stuck as student" after first login).
+      const needsUpdate = user.role !== assignedRole || user.tenantId !== assignedTenantId;
+      if (needsUpdate) {
+        await db.update(users)
+          .set({ role: assignedRole as any, tenantId: assignedTenantId })
+          .where(eq(users.id, user.id));
+        user = { ...user, role: assignedRole as any, tenantId: assignedTenantId };
+        console.log(`[LOGIN SUCCESS] Updated user: ${email} → Role: ${user.role}, Tenant: ${user.tenantId}`);
+      } else {
+        console.log(`[LOGIN SUCCESS] Authenticated existing user: ${email} (Role: ${user.role})`);
+      }
     }
 
     const token = generateToken({
@@ -88,8 +128,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Endpoint to list all users (for easy quick login/testing)
-app.get('/api/auth/users', async (req, res) => {
+// Endpoint to list all users (P0.2 FIX: Admin only)
+app.get('/api/auth/users', authenticateToken, async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
   try {
     const allUsers = await db.select().from(users).orderBy(desc(users.createdAt));
     res.json(allUsers);
@@ -100,23 +143,56 @@ app.get('/api/auth/users', async (req, res) => {
 
 // 2. Trigger Course Generation Workflow (Legacy - Redirected to Step 1 Wizard flow)
 app.post('/api/courses/generate', authenticateToken, async (req, res) => {
-  const { topic, duration } = req.body;
+  const { topic, duration, mode } = req.body;
   if (!topic) {
     return res.status(400).json({ error: 'Topic is required' });
   }
   const user = req.user!;
   try {
+    const isConceptMode = mode === 'concept';
     const [course] = await db.insert(courses).values({
       userId: user.id,
       tenantId: user.tenantId,
       topic,
-      status: 'curriculum_draft',
-      progress: { duration: duration || '2_weeks', percent: 0, step: 'curriculum_draft' },
+      status: 'generating',
+      progress: {
+        duration: duration || '2_weeks',
+        mode: isConceptMode ? 'concept' : 'full',
+        percent: 0,
+        step: isConceptMode ? 'Konzept-Entwurf angelegt…' : 'Warte auf Lehrplan-Generierung…',
+      },
     }).returning();
     res.status(202).json({
       message: 'Course draft initiated.',
       courseId: course.id,
+      mode: isConceptMode ? 'concept' : 'full',
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Finalize a course draft as concept-only (curriculum frame completed without slides)
+app.post('/api/courses/:id/finish-concept', authenticateToken, async (req, res) => {
+  const user = req.user!;
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
+  const courseId = req.params.id;
+  try {
+    const [course] = await db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+    const currentProgress = (course.progress as any) || {};
+    await db.update(courses).set({
+      status: 'content_draft',
+      progress: {
+        ...currentProgress,
+        mode: 'concept',
+        percent: 100,
+        step: 'Didaktisches Konzept fertiggestellt',
+      },
+    }).where(eq(courses.id, courseId));
+    res.json({ success: true, message: 'Didaktisches Konzept erfolgreich gespeichert' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -210,6 +286,7 @@ app.post('/api/courses/import-pptx', express.raw({ type: '*/*', limit: '50mb' })
     await db.insert(lessons).values({
       moduleId: newMod.id,
       tenantId: user.tenantId,
+      sequenceOrder: 1,
       title: 'Präsentationsinhalte',
       contentPayload: {
         text_content,
@@ -255,14 +332,58 @@ async function loadCourseLessons(courseId: string) {
   return { courseModules, allLessons };
 }
 
-function flattenImageSlides(allLessons: any[]) {
+function resolveFallbackSlideImage(slide: any, courseTopic: string = ''): string {
+  if (slide.hide_image === true || slide.layout === 'mermaid' || slide.layout === 'code') {
+    return '';
+  }
+  const textToSearch = `${slide.title || ''} ${(slide.bullets || []).join(' ')} ${courseTopic || ''}`.toLowerCase();
+  if (textToSearch.includes('docker') || textToSearch.includes('container') || textToSearch.includes('kubernetes') || textToSearch.includes('podman') || textToSearch.includes('devops')) {
+    return (slide.title && slide.title.length % 2 === 0) ? '/images/container-intro.png' : '/images/docker-motivation.png';
+  }
+  if (textToSearch.includes('security') || textToSearch.includes('cyber') || textToSearch.includes('owasp') || textToSearch.includes('pentest') || textToSearch.includes('angriff') || textToSearch.includes('hack') || textToSearch.includes('passwort') || textToSearch.includes('auth')) {
+    return '/images/cybersecurity.png';
+  }
+  if (textToSearch.includes('db') || textToSearch.includes('database') || textToSearch.includes('datenbank') || textToSearch.includes('postgres') || textToSearch.includes('sql') || textToSearch.includes('nosql') || textToSearch.includes('server') || textToSearch.includes('cloud')) {
+    return '/images/database.png';
+  }
+  if (textToSearch.includes('llm') || textToSearch.includes('prompt') || textToSearch.includes('ki') || textToSearch.includes('ai')) {
+    return '/images/llm-foundations.png';
+  }
+  return '/images/coding.png';
+}
+
+function flattenImageSlides(allLessons: any[], courseTopic: string = '') {
   type Flat = { lessonId: string; slideIndex: number; slide: any };
   const out: Flat[] = [];
   for (const lesson of allLessons) {
     const payload = (lesson.contentPayload || {}) as any;
-    (payload.slides || []).forEach((slide: any, slideIndex: number) => {
-      if (slide.layout === 'image' || slide.image_url) {
-        out.push({ lessonId: lesson.id, slideIndex, slide });
+    const lessonSlides = payload.slides || [];
+    lessonSlides.forEach((slide: any, slideIndex: number) => {
+      let effectiveImageUrl = slide.image_url || slide.imageUrl || '';
+      const effectiveCues = Array.isArray(slide.image_cues) ? slide.image_cues : [];
+
+      if (!effectiveImageUrl && effectiveCues.length > 0) {
+        const firstWithUrl = effectiveCues.find((c: any) => c.image_url && String(c.image_url).trim());
+        if (firstWithUrl) effectiveImageUrl = firstWithUrl.image_url;
+      }
+
+      if (!effectiveImageUrl && slide.layout !== 'image') {
+        effectiveImageUrl = resolveFallbackSlideImage(slide, courseTopic);
+      }
+
+      const audioUrl = slide.audio_url || (lessonSlides.length === 1 ? lesson.videoUrl : '');
+
+      if (slide.layout === 'image' || effectiveImageUrl || effectiveCues.length > 0) {
+        out.push({
+          lessonId: lesson.id,
+          slideIndex,
+          slide: {
+            ...slide,
+            image_url: effectiveImageUrl,
+            image_cues: effectiveCues,
+            audio_url: audioUrl,
+          },
+        });
       }
     });
   }
@@ -279,8 +400,10 @@ async function narrateOneSlide(opts: {
   let imageBase64: string | undefined;
   const imageUrl = opts.slide.image_url || opts.slide.imageUrl;
   if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('/')) {
-    const abs = path.join(process.cwd(), 'public', imageUrl.replace(/^\//, ''));
-    if (fs.existsSync(abs)) {
+    const publicDir = path.resolve(process.cwd(), 'public');
+    const normalizedRel = path.normalize(imageUrl).replace(/^[\\\/]+/, '');
+    const abs = path.resolve(publicDir, normalizedRel);
+    if (abs.startsWith(publicDir + path.sep) && fs.existsSync(abs)) {
       imageBase64 = fs.readFileSync(abs).toString('base64');
     }
   }
@@ -589,6 +712,10 @@ app.post('/api/courses/:id/slides/:lessonId/:slideIndex/tts', authenticateToken,
   const { id: courseId, lessonId, slideIndex: slideIndexStr } = req.params;
   const slideIndex = parseInt(slideIndexStr, 10);
 
+  if (!courseId || !/^[a-zA-Z0-9_-]+$/.test(courseId)) {
+    return res.status(400).json({ error: 'Invalid course ID format' });
+  }
+
   try {
     const [lesson] = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
     if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
@@ -744,6 +871,344 @@ app.post('/api/courses/:id/generate-tts', authenticateToken, async (req, res) =>
   }
 });
 
+/**
+ * Export course slides + per-slide audio as one MP4 (ffmpeg).
+ * Runs in background; poll GET .../export-mp4/status or progress.export.
+ */
+app.post('/api/courses/:id/export-mp4', authenticateToken, async (req, res) => {
+  const user = req.user!;
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
+  const courseId = req.params.id;
+
+  if (exportJobs.has(courseId)) {
+    return res.status(409).json({ error: 'Export läuft bereits für diesen Kurs' });
+  }
+
+  try {
+    const [course] = await db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+
+    const { allLessons } = await loadCourseLessons(courseId);
+    const flat = flattenImageSlides(allLessons, course.topic);
+    if (flat.length === 0) {
+      return res.status(400).json({ error: 'Keine Folienbilder zum Exportieren gefunden' });
+    }
+
+    const withAudio = flat.filter((s) => s.slide.audio_url && String(s.slide.audio_url).trim());
+    if (withAudio.length === 0) {
+      return res.status(400).json({
+        error: 'Keine Vertonung vorhanden. Bitte zuerst Folien vertonen, dann exportieren.',
+      });
+    }
+
+    const prevProgress = (course.progress || {}) as any;
+    const exportState: ExportProgress = {
+      status: 'running',
+      percent: 0,
+      step: 'Export gestartet…',
+      updatedAt: new Date().toISOString(),
+    };
+
+    await db.update(courses).set({
+      progress: {
+        ...prevProgress,
+        export: exportState,
+        step: `MP4-Export (0/${flat.length})…`,
+      },
+    }).where(eq(courses.id, courseId));
+
+    exportJobs.add(courseId);
+    res.json({ success: true, message: 'MP4-Export gestartet', total: flat.length });
+
+    (async () => {
+      try {
+        const downloadUrl = await exportCourseToMp4({
+          courseId,
+          topic: course.topic,
+          slides: flat.map((f, i) => ({
+            index: i,
+            layout: f.slide.layout || 'bullets',
+            title: f.slide.title,
+            bullets: f.slide.bullets,
+            codeSnippet: f.slide.code_snippet,
+            codeLanguage: f.slide.code_language,
+            mermaidCode: f.slide.mermaid_code,
+            imageUrl: f.slide.image_url,
+            imageCues: f.slide.image_cues,
+            audioUrl: f.slide.audio_url,
+          })),
+          onProgress: async (percent, step) => {
+            const [fresh] = await db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+            const prog = ((fresh?.progress || prevProgress) as any) || {};
+            await db.update(courses).set({
+              progress: {
+                ...prog,
+                step: `MP4-Export: ${step}`,
+                export: {
+                  status: 'running',
+                  percent,
+                  step,
+                  updatedAt: new Date().toISOString(),
+                },
+              },
+            }).where(eq(courses.id, courseId));
+          },
+        });
+
+        const [fresh] = await db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+        const prog = ((fresh?.progress || {}) as any) || {};
+        await db.update(courses).set({
+          progress: {
+            ...prog,
+            step: 'MP4-Export fertig',
+            export: {
+              status: 'ready',
+              percent: 100,
+              step: 'MP4-Export fertig',
+              downloadUrl,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        }).where(eq(courses.id, courseId));
+
+        console.log(`[EXPORT MP4] Course ${courseId} -> ${downloadUrl}`);
+      } catch (bgErr: any) {
+        console.error('[EXPORT MP4] failed:', bgErr);
+        const [fresh] = await db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+        const prog = ((fresh?.progress || {}) as any) || {};
+        await db.update(courses).set({
+          progress: {
+            ...prog,
+            step: `MP4-Export fehlgeschlagen: ${bgErr.message}`,
+            export: {
+              status: 'failed',
+              percent: 0,
+              step: bgErr.message,
+              error: bgErr.message,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        }).where(eq(courses.id, courseId));
+      } finally {
+        exportJobs.delete(courseId);
+      }
+    })();
+  } catch (err: any) {
+    exportJobs.delete(courseId);
+    console.error('[EXPORT MP4]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/courses/:id/export-mp4/status', authenticateToken, async (req, res) => {
+  const user = req.user!;
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
+  try {
+    const [course] = await db.select().from(courses).where(eq(courses.id, req.params.id)).limit(1);
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+    const exportInfo = ((course.progress as any)?.export || {
+      status: 'idle',
+      percent: 0,
+      step: 'Kein Export',
+    }) as ExportProgress;
+    res.json({
+      ...exportInfo,
+      running: exportJobs.has(req.params.id),
+      topic: course.topic,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// OPTION C: Pure Didactic Concept Generation (Staged GLM-5.3 + PDF)
+app.post('/api/courses/generate-concept', authenticateToken, async (req, res) => {
+  const user = req.user!;
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
+  const { topic, duration, customPrompt } = req.body;
+  if (!topic || typeof topic !== 'string' || !topic.trim()) {
+    return res.status(400).json({ error: 'Thema darf nicht leer sein' });
+  }
+
+  let courseId: string | null = null;
+  try {
+    // 1. Create course entry with status concept_generating
+    const [newCourse] = await db.insert(courses).values({
+      tenantId: user.tenantId,
+      topic: topic.trim(),
+      status: 'concept_generating',
+      progress: {
+        mode: 'concept',
+        duration: duration || '2_weeks',
+        percent: 15,
+        step: 'Didaktisches Rahmenkonzept wird stufenweise generiert...',
+      },
+    }).returning();
+    courseId = newCourse.id;
+
+    // 2. Call AI Service /generate-concept
+    const payload = {
+      topic: topic.trim(),
+      duration: duration || '2_weeks',
+      tenant_id: user.tenantId,
+      custom_prompt: customPrompt || undefined,
+      course_id: courseId,
+    };
+
+    let response: Response;
+    try {
+      response = await fetch(`${AI_SERVICE_URL}/generate-concept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(300_000), // 5 minutes max for multi-week staged generation
+      });
+    } catch (fetchErr: any) {
+      const timedOut = fetchErr?.name === 'TimeoutError' || fetchErr?.name === 'AbortError';
+      throw new Error(
+        timedOut
+          ? `AI-Service Timeout nach 300s unter ${AI_SERVICE_URL}. Bitte erneut versuchen.`
+          : `AI-Service nicht erreichbar unter ${AI_SERVICE_URL} (${fetchErr?.message || 'fetch failed'}).`
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(`AI Service returned status ${response.status}: ${await response.text()}`);
+    }
+
+    const concept = (await response.json()) as any;
+    if (!concept?.modules || !Array.isArray(concept.modules) || concept.modules.length === 0) {
+      throw new Error('AI-Service lieferte kein gültiges Konzept (modules leer).');
+    }
+
+    // 3. Persist modules and lessons atomically
+    await db.transaction(async (tx) => {
+      await tx.delete(modules).where(eq(modules.courseId, courseId!));
+
+      for (let i = 0; i < concept.modules.length; i++) {
+        const modData = concept.modules[i];
+        const [newModule] = await tx.insert(modules).values({
+          courseId: courseId!,
+          sequenceOrder: modData.week_number || (i + 1),
+          title: modData.title,
+        }).returning();
+
+        if (Array.isArray(modData.lessons)) {
+          for (const [lesIdx, lesData] of modData.lessons.entries()) {
+            await tx.insert(lessons).values({
+              moduleId: newModule.id,
+              tenantId: user.tenantId,
+              sequenceOrder: lesIdx + 1,
+              title: lesData.title,
+              contentPayload: {
+                description: lesData.description,
+                learning_objectives: lesData.learning_objectives || [],
+                target_ue: lesData.target_ue || 8,
+                methodology: lesData.methodology || 'Praxis-Lab',
+                practical_exercise: lesData.practical_exercise || '',
+                slides: [],
+                text_content: '',
+                teleprompter_script: '',
+                quiz: [],
+              },
+            });
+          }
+        }
+      }
+
+      await tx.update(courses)
+        .set({
+          status: 'concept_ready',
+          topic: concept.course_title || topic,
+          progress: {
+            mode: 'concept',
+            percent: 100,
+            step: 'Didaktisches Rahmenkonzept & PDF erfolgreich erstellt',
+            duration: duration || '2_weeks',
+            pdfUrl: concept.pdf_url || `/course_output/${courseId}/didaktisches_konzept.pdf`,
+            total_ue: concept.total_ue,
+            duration_desc: concept.duration_desc,
+            executive_summary: concept.executive_summary,
+            target_audience: concept.target_audience,
+            prerequisites: concept.prerequisites,
+            didactic_approach: concept.didactic_approach,
+          },
+        })
+        .where(eq(courses.id, courseId!));
+    });
+
+    res.json({
+      success: true,
+      courseId,
+      pdfUrl: concept.pdf_url || `/course_output/${courseId}/didaktisches_konzept.pdf`,
+      concept,
+    });
+  } catch (err: any) {
+    console.error('[generate-concept] Error:', err);
+    if (courseId) {
+      try {
+        await db.update(courses)
+          .set({
+            status: 'failed',
+            progress: {
+              mode: 'concept',
+              percent: 0,
+              step: `Konzept-Generierung fehlgeschlagen: ${err.message}`,
+              error: err.message,
+            },
+          })
+          .where(eq(courses.id, courseId));
+      } catch (updateErr: any) {
+        console.error('[generate-concept] Could not persist failure status:', updateErr?.message);
+      }
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET Didactic Concept details for a course
+app.get('/api/courses/:id/concept', authenticateToken, async (req, res) => {
+  try {
+    const [course] = await db.select().from(courses).where(eq(courses.id, req.params.id)).limit(1);
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+
+    const courseModules = await db.select().from(modules).where(eq(modules.courseId, course.id)).orderBy(asc(modules.sequenceOrder));
+    const fullModules = [];
+
+    for (const mod of courseModules) {
+      const modLessons = await db.select().from(lessons).where(eq(lessons.moduleId, mod.id)).orderBy(asc(lessons.sequenceOrder));
+      fullModules.push({
+        ...mod,
+        lessons: modLessons.map(l => ({
+          id: l.id,
+          sequenceOrder: l.sequenceOrder,
+          title: l.title,
+          ...(typeof l.contentPayload === 'object' && l.contentPayload !== null ? l.contentPayload : {}),
+        })),
+      });
+    }
+
+    const progress = (course.progress || {}) as any;
+    res.json({
+      courseId: course.id,
+      topic: course.topic,
+      status: course.status,
+      pdfUrl: progress.pdfUrl || `/course_output/${course.id}/didaktisches_konzept.pdf`,
+      progress,
+      modules: fullModules,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // WIZARD STEP 1: Generate Curriculum & Slides from Prompt
 app.post('/api/courses/wizard/step1-curriculum', authenticateToken, async (req, res) => {
@@ -754,10 +1219,13 @@ app.post('/api/courses/wizard/step1-curriculum', authenticateToken, async (req, 
   const { courseId, topic, duration, customPrompt } = req.body;
 
   try {
+    const [course] = await db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+    const targetTenantId = course ? course.tenantId : user.tenantId;
+
     // 1. Call Python AI Service
     const payload = {
       topic,
-      tenant_id: user.tenantId,
+      tenant_id: targetTenantId,
       duration: duration || '2_weeks',
       custom_prompt: customPrompt || undefined
     };
@@ -768,10 +1236,15 @@ app.post('/api/courses/wizard/step1-curriculum', authenticateToken, async (req, 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        // LLM curriculum can take up to a few minutes for complex requests
+        signal: AbortSignal.timeout(300_000),
       });
     } catch (fetchErr: any) {
+      const timedOut = fetchErr?.name === 'TimeoutError' || fetchErr?.name === 'AbortError';
       throw new Error(
-        `AI-Service nicht erreichbar unter ${AI_SERVICE_URL} (${fetchErr?.message || 'fetch failed'}). Bitte python src/ai_service/main.py starten.`
+        timedOut
+          ? `AI-Service Timeout nach 300s unter ${AI_SERVICE_URL}. Bitte LLM-Key/Netz prüfen oder erneut versuchen.`
+          : `AI-Service nicht erreichbar unter ${AI_SERVICE_URL} (${fetchErr?.message || 'fetch failed'}). Bitte python src/ai_service/main.py starten.`
       );
     }
 
@@ -780,12 +1253,15 @@ app.post('/api/courses/wizard/step1-curriculum', authenticateToken, async (req, 
     }
 
     const curriculum = (await response.json()) as any;
+    if (!curriculum?.modules || !Array.isArray(curriculum.modules) || curriculum.modules.length === 0) {
+      throw new Error('AI-Service lieferte keinen gültigen Lehrplan (modules leer). Bitte erneut generieren.');
+    }
 
-    // Delete existing modules/lessons if regenerating
-    await db.delete(modules).where(eq(modules.courseId, courseId));
-
-    // Save modules and lessons in database
+    // Save modules and lessons in database atomically (Befund 27)
     await db.transaction(async (tx) => {
+      // Delete existing modules/lessons if regenerating inside transaction
+      await tx.delete(modules).where(eq(modules.courseId, courseId));
+
       for (let i = 0; i < curriculum.modules.length; i++) {
         const modData = curriculum.modules[i];
         const [newModule] = await tx.insert(modules).values({
@@ -794,10 +1270,11 @@ app.post('/api/courses/wizard/step1-curriculum', authenticateToken, async (req, 
           title: modData.title,
         }).returning();
 
-        for (const lesData of modData.lessons) {
+        for (const [lesIdx, lesData] of modData.lessons.entries()) {
           await tx.insert(lessons).values({
             moduleId: newModule.id,
-            tenantId: user.tenantId,
+            tenantId: targetTenantId,
+            sequenceOrder: lesIdx + 1,
             title: lesData.title,
             contentPayload: {
               description: lesData.description,
@@ -812,13 +1289,39 @@ app.post('/api/courses/wizard/step1-curriculum', authenticateToken, async (req, 
       }
 
       await tx.update(courses)
-        .set({ status: 'curriculum_draft', topic: curriculum.course_title || topic })
+        .set({
+          status: 'curriculum_draft',
+          topic: curriculum.course_title || topic,
+          progress: {
+            duration: duration || '2_weeks',
+            percent: 25,
+            step: 'curriculum_draft',
+          },
+        })
         .where(eq(courses.id, courseId));
     });
 
     res.json({ success: true, message: 'Curriculum & slides generated successfully.' });
   } catch (err: any) {
     console.error('[wizard/step1-curriculum] Error:', err);
+    // Persist failure so the admin dashboard does not show an empty "successful" draft
+    try {
+      if (courseId) {
+        await db.update(courses)
+          .set({
+            status: 'failed',
+            progress: {
+              percent: 0,
+              step: `Lehrplan-Generierung fehlgeschlagen: ${err.message}`,
+              error: err.message,
+              duration: duration || '2_weeks',
+            },
+          })
+          .where(eq(courses.id, courseId));
+      }
+    } catch (updateErr: any) {
+      console.error('[wizard/step1-curriculum] Could not persist failure status:', updateErr?.message);
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -888,7 +1391,16 @@ app.post('/api/courses/wizard/step2-content', authenticateToken, async (req, res
     (async () => {
       try {
         const total = allLessons.length;
+        const targetTenantId = course.tenantId || user.tenantId;
+
         for (let i = 0; i < total; i++) {
+          // Check if generation was cancelled / stopped (Befund 20)
+          const [currentCourse] = await db.select({ status: courses.status }).from(courses).where(eq(courses.id, courseId)).limit(1);
+          if (currentCourse?.status === 'failed') {
+            console.log(`[generate-content] Course generation for ${courseId} was cancelled by user. Aborting loop.`);
+            return;
+          }
+
           const lesson = allLessons[i];
           const moduleOfLesson = courseModules.find((m) => m.id === lesson.moduleId);
           const moduleTitle = moduleOfLesson ? moduleOfLesson.title : 'Modul';
@@ -900,7 +1412,7 @@ app.post('/api/courses/wizard/step2-content', authenticateToken, async (req, res
             course_topic: course.topic,
             module_title: moduleTitle,
             lesson_title: lesson.title,
-            tenant_id: user.tenantId,
+            tenant_id: targetTenantId,
             custom_prompt: customPrompt || undefined
           };
 
@@ -928,26 +1440,29 @@ app.post('/api/courses/wizard/step2-content', authenticateToken, async (req, res
             })
             .where(eq(lessons.id, lesson.id));
 
-          // Generate embeddings
+          // Generate embeddings under course.tenantId (Befund 28)
           const embResponse = (await fetch(`${AI_SERVICE_URL}/generate-embeddings`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: content.text_content, tenant_id: user.tenantId }),
+            body: JSON.stringify({ text: content.text_content, tenant_id: targetTenantId }),
           }).then((r) => r.json())) as any;
 
           // Save vector
-          await withTenant(user.tenantId, async (tx) => {
+          await withTenant(targetTenantId, async (tx) => {
             await tx.delete(embeddings).where(eq(embeddings.lessonId, lesson.id));
             await tx.insert(embeddings).values({
               lessonId: lesson.id,
-              tenantId: user.tenantId,
+              tenantId: targetTenantId,
               embedding: embResponse.embedding,
             });
           });
         }
 
-        // Set status to content_draft for final preview
-        await db.update(courses).set({ status: 'content_draft', progress: { percent: 80, step: 'Lektionsinhalte generiert.' } }).where(eq(courses.id, courseId));
+        // Only set status to content_draft if not cancelled during generation (Befund 20)
+        const [finalCourse] = await db.select({ status: courses.status }).from(courses).where(eq(courses.id, courseId)).limit(1);
+        if (finalCourse?.status !== 'failed') {
+          await db.update(courses).set({ status: 'content_draft', progress: { percent: 80, step: 'Lektionsinhalte generiert.' } }).where(eq(courses.id, courseId));
+        }
       } catch (bgErr: any) {
         console.error('Background lesson content generation failed:', bgErr);
         await db.update(courses).set({ status: 'failed', progress: { percent: 100, step: `Fehler: ${bgErr.message}` } }).where(eq(courses.id, courseId));
@@ -1006,6 +1521,26 @@ app.post('/api/courses/wizard/step3-media', authenticateToken, async (req, res) 
       return res.status(404).json({ error: 'Course not found' });
     }
 
+    // Verify that all lessons have valid teleprompter scripts
+    const courseModules = await db.select().from(modules).where(eq(modules.courseId, courseId));
+    const moduleIds = courseModules.map((m) => m.id);
+    const courseLessons = moduleIds.length > 0 ? await db.select().from(lessons).where(inList(lessons.moduleId, moduleIds)) : [];
+    
+    const missingScripts = courseLessons.filter(l => {
+      const payload = (l.contentPayload || {}) as any;
+      const script = (payload.teleprompter_script || '').trim();
+      const slideNotes = (payload.slides || []).map((s: any) => (s.speaker_notes || '').trim()).filter(Boolean);
+      return script.length < 15 && slideNotes.length === 0;
+    });
+
+    if (missingScripts.length > 0) {
+      const names = missingScripts.slice(0, 3).map(l => `"${l.title}"`).join(', ');
+      const extra = missingScripts.length > 3 ? ` und ${missingScripts.length - 3} weitere` : '';
+      return res.status(400).json({
+        error: `Fehlende Sprechskripte: Für ${missingScripts.length} Lektion(en) (${names}${extra}) wurde noch kein Teleprompter-Sprechskript hinterlegt. Bitte zuerst in Schritt 2 die Lektionsinhalte generieren oder manuell erfassen.`
+      });
+    }
+
     await db.update(courses).set({ status: 'generating', progress: { percent: 80, step: 'Rendere Video-Avatare und Sprache...' } }).where(eq(courses.id, courseId));
 
     // Trigger Temporal Workflow to render media
@@ -1036,8 +1571,9 @@ app.get('/api/courses', authenticateToken, async (req, res) => {
       list = await db.select().from(courses)
         .orderBy(desc(courses.createdAt));
     } else {
+      // Students only see released courses for their tenant
       list = await db.select().from(courses)
-        .where(eq(courses.tenantId, user.tenantId))
+        .where(and(eq(courses.tenantId, user.tenantId), eq(courses.status, 'active')))
         .orderBy(desc(courses.createdAt));
     }
 
@@ -1045,15 +1581,12 @@ app.get('/api/courses', authenticateToken, async (req, res) => {
     if (user.role === 'admin' && list.length > 0) {
       const enriched = await Promise.all(list.map(async (course) => {
         const isPptx = (course.progress as any)?.source === 'pptx';
-        if (!isPptx) {
-          return { ...course, pipeline: null, isPptx: false };
-        }
         try {
           const { allLessons } = await loadCourseLessons(course.id);
           const pipeline = computeSlidePipelineStatus(allLessons);
-          return { ...course, pipeline, isPptx: true };
+          return { ...course, pipeline, isPptx };
         } catch {
-          return { ...course, pipeline: null, isPptx: true };
+          return { ...course, pipeline: null, isPptx };
         }
       }));
       return res.json(enriched);
@@ -1064,6 +1597,38 @@ app.get('/api/courses', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Removes quiz answer keys and coding solutions from a lesson payload for students.
+function stripQuizAnswersForStudent(lesson: any) {
+  const payload = lesson?.contentPayload;
+  if (!payload) {
+    return lesson;
+  }
+
+  const nextPayload: any = { ...payload };
+
+  if (Array.isArray(payload.quiz) && payload.quiz.length > 0) {
+    nextPayload.quiz = payload.quiz.map((q: any) => ({
+      question: q?.question,
+      options: Array.isArray(q?.options) ? [...q.options] : q?.options,
+    }));
+  }
+
+  // Keep starter code + criteria; hide Musterlösung until (optional) reveal is added server-side.
+  if (payload.exercise && typeof payload.exercise === 'object') {
+    const { solution, ...rest } = payload.exercise;
+    nextPayload.exercise = {
+      ...rest,
+      solution: undefined,
+      has_solution: !!(solution && Object.keys(solution || {}).length > 0),
+    };
+  }
+
+  return {
+    ...lesson,
+    contentPayload: nextPayload,
+  };
+}
 
 // 4. Fetch Course Details (Modules, Lessons, and Video URL)
 app.get('/api/courses/:id', authenticateToken, async (req, res) => {
@@ -1081,20 +1646,88 @@ app.get('/api/courses/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Course not found' });
     }
 
+    // Students may only open released courses
+    if (user.role !== 'admin' && course.status !== 'active') {
+      return res.status(403).json({ error: 'Kurs ist noch nicht freigegeben' });
+    }
+
     const courseModules = await db.select().from(modules)
       .where(eq(modules.courseId, id))
       .orderBy(asc(modules.sequenceOrder));
 
     const moduleIds = courseModules.map((m) => m.id);
-    
+
     let courseLessons: any[] = [];
     if (moduleIds.length > 0) {
-      courseLessons = await db.select().from(lessons)
+      // Deterministic order: module sequence first, then lesson sequence.
+      // createdAt alone is ambiguous because lessons inserted inside one
+      // transaction share the same timestamp.
+      const rows = await db.select({ lesson: lessons })
+        .from(lessons)
+        .innerJoin(modules, eq(lessons.moduleId, modules.id))
         .where(inList(lessons.moduleId, moduleIds))
-        .orderBy(asc(lessons.createdAt));
+        .orderBy(asc(modules.sequenceOrder), asc(lessons.sequenceOrder), asc(lessons.createdAt), asc(lessons.id));
+      courseLessons = rows.map((r) => r.lesson);
+    }
+
+    // Students must not receive quiz solutions upfront: strip answer keys and
+    // explanations. Scoring happens server-side via /quiz-submit.
+    if (user.role !== 'admin') {
+      courseLessons = courseLessons.map(stripQuizAnswersForStudent);
     }
 
     res.json({ course, modules: courseModules, lessons: courseLessons });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4b. Server-Side Quiz Scoring (students never receive the answer key upfront)
+app.post('/api/courses/:id/lessons/:lessonId/quiz-submit', authenticateToken, async (req, res) => {
+  const user = req.user!;
+  const { id: courseId, lessonId } = req.params;
+  const { questionIndex, selectedIndex } = req.body ?? {};
+
+  if (!Number.isInteger(questionIndex) || questionIndex < 0 ||
+      !Number.isInteger(selectedIndex) || selectedIndex < 0) {
+    return res.status(400).json({ error: 'questionIndex and selectedIndex (non-negative integers) are required' });
+  }
+
+  try {
+    let courseWhere: any = eq(courses.id, courseId);
+    if (user.role !== 'admin') {
+      courseWhere = and(eq(courses.id, courseId), eq(courses.tenantId, user.tenantId));
+    }
+    const [course] = await db.select().from(courses).where(courseWhere).limit(1);
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    if (user.role !== 'admin' && course.status !== 'active') {
+      return res.status(403).json({ error: 'Kurs ist noch nicht freigegeben' });
+    }
+
+    // Verify the lesson actually belongs to this course
+    const [lesson] = (await db.select({ lesson: lessons })
+      .from(lessons)
+      .innerJoin(modules, eq(lessons.moduleId, modules.id))
+      .where(and(eq(lessons.id, lessonId), eq(modules.courseId, courseId)))
+      .limit(1)).map((r: any) => r.lesson);
+    if (!lesson) {
+      return res.status(404).json({ error: 'Lesson not found' });
+    }
+
+    const quiz = lesson.contentPayload?.quiz;
+    if (!Array.isArray(quiz) || questionIndex >= quiz.length) {
+      return res.status(404).json({ error: 'Quiz question not found' });
+    }
+
+    const q = quiz[questionIndex];
+    const correctIndex = typeof q.correct_option_index === 'number' ? q.correct_option_index : -1;
+    res.json({
+      isCorrect: selectedIndex === correctIndex,
+      correctIndex,
+      explanation: q.explanation || '',
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1206,14 +1839,18 @@ app.post('/api/webhooks/heygen', async (req, res) => {
     return res.status(401).json({ error: 'Signature header X-Signature is missing' });
   }
 
-  // Verify HMAC-SHA256 signature
-  const bodyString = JSON.stringify(req.body);
+  // Verify HMAC-SHA256 signature over the raw request bytes (what a provider
+  // actually signs). Falls back to re-serialization only if raw body is absent.
+  const rawBody: Buffer | undefined = (req as any).rawBody;
+  const bodyString: string = rawBody ? rawBody.toString('utf-8') : JSON.stringify(req.body);
   const computedSignature = crypto
     .createHmac('sha256', WEBHOOK_SECRET)
     .update(bodyString)
     .digest('hex');
 
-  if (signature !== computedSignature) {
+  const sigBuffer = Buffer.from(String(signature));
+  const compBuffer = Buffer.from(computedSignature);
+  if (sigBuffer.length !== compBuffer.length || !crypto.timingSafeEqual(sigBuffer, compBuffer)) {
     console.warn('[WEBHOOK ERROR] Invalid HeyGen signature!');
     return res.status(403).json({ error: 'Invalid HMAC-SHA256 signature' });
   }
@@ -1243,8 +1880,8 @@ app.post('/api/time-tracking/heartbeat', authenticateToken, async (req, res) => 
   const user = req.user!;
   const { sessionId, durationSec } = req.body;
 
-  if (!sessionId || durationSec === undefined) {
-    return res.status(400).json({ error: 'sessionId and durationSec are required' });
+  if (!sessionId || durationSec === undefined || typeof durationSec !== 'number' || durationSec <= 0) {
+    return res.status(400).json({ error: 'Valid sessionId and positive numeric durationSec are required' });
   }
 
   try {
@@ -1254,6 +1891,7 @@ app.post('/api/time-tracking/heartbeat', authenticateToken, async (req, res) => 
       cryptoHash: log.cryptoHash,
       previousHash: log.previousHash,
       timestamp: log.timestamp.toISOString(),
+      durationSec: log.durationSec, // the value actually stored (delta-clamped)
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1277,6 +1915,31 @@ app.get('/api/time-tracking/verify/:sessionId', authenticateToken, async (req, r
   }
 });
 
+// 8b. List recent tracking sessions (Admin only, feeds the verification UI)
+app.get('/api/time-tracking/sessions', authenticateToken, async (req, res) => {
+  const user = req.user!;
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
+  try {
+    const rows = await db
+      .select({
+        sessionId: activityLogs.sessionId,
+        userId: activityLogs.userId,
+        blocks: sql<number>`count(*)::int`,
+        totalDurationSec: sql<number>`coalesce(sum(${activityLogs.durationSec}), 0)::int`,
+        lastAt: sql<string>`max(${activityLogs.timestamp})`,
+      })
+      .from(activityLogs)
+      .groupBy(activityLogs.sessionId, activityLogs.userId)
+      .orderBy(desc(sql`max(${activityLogs.timestamp})`))
+      .limit(50);
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 9. pgvector RAG AI Tutor Chat (Strict Tenant Isolation via RLS)
 app.post('/api/tutor/query', authenticateToken, async (req, res) => {
   const user = req.user!;
@@ -1287,6 +1950,15 @@ app.post('/api/tutor/query', authenticateToken, async (req, res) => {
   }
 
   try {
+    // Check course existence and permissions before querying RAG (Befund 29)
+    const [targetCourse] = await db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+    if (!targetCourse) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    if (user.role !== 'admin' && (targetCourse.tenantId !== user.tenantId || targetCourse.status !== 'active')) {
+      return res.status(403).json({ error: 'Kurs ist nicht freigegeben oder kein Zugriff' });
+    }
+
     // A. Generate embedding vector for the question using AI Service
     const embData = (await fetch(`${AI_SERVICE_URL}/generate-embeddings`, {
       method: 'POST',
@@ -1310,13 +1982,13 @@ app.post('/api/tutor/query', authenticateToken, async (req, res) => {
         })
         .from(embeddings)
         .innerJoin(lessons, eq(embeddings.lessonId, lessons.id))
+        .innerJoin(modules, eq(lessons.moduleId, modules.id))
         .where(
           and(
             eq(embeddings.tenantId, user.tenantId),
             eq(modules.courseId, courseId)
           )
         )
-        .innerJoin(modules, eq(lessons.moduleId, modules.id))
         .orderBy(desc(similarity))
         .limit(3);
     });
@@ -1391,53 +2063,93 @@ function readEnvFile(): Record<string, string> {
 
 function writeEnvFile(config: Record<string, string>) {
   const envPath = path.join(process.cwd(), '.env');
+  const existing = readEnvFile();
+  const merged = { ...existing, ...config };
+
+  // Never persist known insecure default secrets: replace with a generated value.
+  const insecureSecrets = new Set(['supersecretjwtkeyforauthentication123!', 'heygen-webhook-secret-key-12345']);
+  if (!merged.JWT_SECRET || insecureSecrets.has(merged.JWT_SECRET)) {
+    merged.JWT_SECRET = crypto.randomBytes(48).toString('base64url');
+  }
+  if (!merged.WEBHOOK_SECRET || insecureSecrets.has(merged.WEBHOOK_SECRET)) {
+    merged.WEBHOOK_SECRET = crypto.randomBytes(48).toString('base64url');
+  }
+
+  const standardKeys = new Set([
+    'DATABASE_URL', 'PORT', 'JWT_SECRET', 'JWT_ISSUER', 'JWT_AUDIENCE',
+    'TEMPORAL_ADDRESS', 'TEMPORAL_QUEUE',
+    'HEYGEN_API_URL', 'HEYGEN_API_KEY', 'WEBHOOK_SECRET', 'WEBHOOK_URL',
+    'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID',
+    'MINIMAX_API_KEY', 'MINIMAX_GROUP_ID', 'MINIMAX_VOICE_ID', 'MINIMAX_MODEL',
+    'GENERATE_VIDEO', 'VIDEO_PROVIDER', 'ELEVENLABS_TTS_ONLY', 'TTS_PROVIDER',
+    'AI_SERVICE_URL', 'LLM_PROVIDER', 'EMBEDDING_PROVIDER',
+    'OPENROUTER_API_KEY', 'OPENROUTER_MODEL',
+    'ZHIPU_API_KEY', 'ZHIPU_MODEL', 'ZHIPU_VISION_MODEL', 'ZHIPU_EMBEDDING_MODEL', 'ZHIPU_BASE_URL',
+    'vLLM_BASE_URL', 'vLLM_MODEL'
+  ]);
+
   const sections = [
     '# Database Configuration',
-    `DATABASE_URL=${config.DATABASE_URL || 'postgres://postgres:postgres@localhost:5439/elearning'}`,
+    `DATABASE_URL=${merged.DATABASE_URL || 'postgres://postgres:postgres@localhost:5439/elearning'}`,
     '',
     '# Server Configuration',
-    `PORT=${config.PORT || '3010'}`,
-    `JWT_SECRET=${config.JWT_SECRET || 'supersecretjwtkeyforauthentication123!'}`,
-    `JWT_ISSUER=${config.JWT_ISSUER || 'elearning-platform'}`,
-    `JWT_AUDIENCE=${config.JWT_AUDIENCE || 'elearning-students'}`,
+    `PORT=${merged.PORT || '3010'}`,
+    `JWT_SECRET=${merged.JWT_SECRET}`,
+    `JWT_ISSUER=${merged.JWT_ISSUER || 'elearning-platform'}`,
+    `JWT_AUDIENCE=${merged.JWT_AUDIENCE || 'elearning-students'}`,
     '',
     '# Temporal Configuration',
-    `TEMPORAL_ADDRESS=${config.TEMPORAL_ADDRESS || 'localhost:7233'}`,
-    `TEMPORAL_QUEUE=${config.TEMPORAL_QUEUE || 'elearning-tasks'}`,
+    `TEMPORAL_ADDRESS=${merged.TEMPORAL_ADDRESS || 'localhost:7233'}`,
+    `TEMPORAL_QUEUE=${merged.TEMPORAL_QUEUE || 'elearning-tasks'}`,
     '',
     '# HeyGen API & Webhooks',
-    `HEYGEN_API_URL=${config.HEYGEN_API_URL || 'http://localhost:3010/api/mock/heygen'}`,
-    `HEYGEN_API_KEY=${config.HEYGEN_API_KEY || 'mock-heygen-key'}`,
-    `WEBHOOK_SECRET=${config.WEBHOOK_SECRET || 'heygen-webhook-secret-key-12345'}`,
-    `WEBHOOK_URL=${config.WEBHOOK_URL || 'http://localhost:3010/api/webhooks/heygen'}`,
+    `HEYGEN_API_URL=${merged.HEYGEN_API_URL || 'http://localhost:3010/api/mock/heygen'}`,
+    `HEYGEN_API_KEY=${merged.HEYGEN_API_KEY || 'mock-heygen-key'}`,
+    `WEBHOOK_SECRET=${merged.WEBHOOK_SECRET}`,
+    `WEBHOOK_URL=${merged.WEBHOOK_URL || 'http://localhost:3010/api/webhooks/heygen'}`,
     '',
     '# ElevenLabs configuration',
-    `ELEVENLABS_API_KEY=${config.ELEVENLABS_API_KEY || 'mock-elevenlabs-key'}`,
-    `ELEVENLABS_VOICE_ID=${config.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'}`,
+    `ELEVENLABS_API_KEY=${merged.ELEVENLABS_API_KEY || 'mock-elevenlabs-key'}`,
+    `ELEVENLABS_VOICE_ID=${merged.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'}`,
     '',
     '# MiniMax Audio configuration',
-    `MINIMAX_API_KEY=${config.MINIMAX_API_KEY || ''}`,
-    `MINIMAX_GROUP_ID=${config.MINIMAX_GROUP_ID || ''}`,
-    `MINIMAX_VOICE_ID=${config.MINIMAX_VOICE_ID || 'male-qn-qingse'}`,
-    `MINIMAX_MODEL=${config.MINIMAX_MODEL || 'speech-02-hd'}`,
+    `MINIMAX_API_KEY=${merged.MINIMAX_API_KEY || ''}`,
+    `MINIMAX_GROUP_ID=${merged.MINIMAX_GROUP_ID || ''}`,
+    `MINIMAX_VOICE_ID=${merged.MINIMAX_VOICE_ID || 'male-qn-qingse'}`,
+    `MINIMAX_MODEL=${merged.MINIMAX_MODEL || 'speech-02-hd'}`,
     '',
     '# Media Generation Config',
-    `GENERATE_VIDEO=${config.GENERATE_VIDEO !== undefined ? config.GENERATE_VIDEO : 'false'}`,
-    `VIDEO_PROVIDER=${config.VIDEO_PROVIDER || 'elevenlabs'}`,
-    `ELEVENLABS_TTS_ONLY=${config.ELEVENLABS_TTS_ONLY !== undefined ? config.ELEVENLABS_TTS_ONLY : 'true'}`,
-    `TTS_PROVIDER=${config.TTS_PROVIDER || 'elevenlabs'}`,
+    `GENERATE_VIDEO=${merged.GENERATE_VIDEO !== undefined ? merged.GENERATE_VIDEO : 'false'}`,
+    `VIDEO_PROVIDER=${merged.VIDEO_PROVIDER || 'elevenlabs'}`,
+    `ELEVENLABS_TTS_ONLY=${merged.ELEVENLABS_TTS_ONLY !== undefined ? merged.ELEVENLABS_TTS_ONLY : 'true'}`,
+    `TTS_PROVIDER=${merged.TTS_PROVIDER || 'elevenlabs'}`,
     '',
     '# AI Service Configuration (Python FastAPI)',
-    `AI_SERVICE_URL=${config.AI_SERVICE_URL || 'http://127.0.0.1:8085'}`,
-    `LLM_PROVIDER=${config.LLM_PROVIDER || 'openrouter'}`,
-    `EMBEDDING_PROVIDER=${config.EMBEDDING_PROVIDER || 'local'}`,
+    `AI_SERVICE_URL=${merged.AI_SERVICE_URL || 'http://127.0.0.1:8085'}`,
+    `LLM_PROVIDER=${merged.LLM_PROVIDER || 'openrouter'}`,
+    `EMBEDDING_PROVIDER=${merged.EMBEDDING_PROVIDER || 'local'}`,
     '',
     '# API Keys',
-    `OPENROUTER_API_KEY=${config.OPENROUTER_API_KEY || 'mock-openrouter-key'}`,
-    `OPENROUTER_MODEL=${config.OPENROUTER_MODEL || 'google/gemini-2.5-pro'}`,
-    `vLLM_BASE_URL=${config.vLLM_BASE_URL || 'http://localhost:8000/v1'}`,
-    `vLLM_MODEL=${config.vLLM_MODEL || 'meta-llama/Meta-Llama-3-8B-Instruct'}`,
+    `OPENROUTER_API_KEY=${merged.OPENROUTER_API_KEY || 'mock-openrouter-key'}`,
+    `OPENROUTER_MODEL=${merged.OPENROUTER_MODEL || 'google/gemini-2.5-pro'}`,
+    `ZHIPU_API_KEY=${merged.ZHIPU_API_KEY || ''}`,
+    `ZHIPU_MODEL=${merged.ZHIPU_MODEL || 'glm-5.3'}`,
+    `ZHIPU_VISION_MODEL=${merged.ZHIPU_VISION_MODEL || 'glm-5.3-flash'}`,
+    `ZHIPU_EMBEDDING_MODEL=${merged.ZHIPU_EMBEDDING_MODEL || 'embedding-3'}`,
+    `ZHIPU_BASE_URL=${merged.ZHIPU_BASE_URL || 'https://api.z.ai/api/paas/v4/'}`,
+    `vLLM_BASE_URL=${merged.vLLM_BASE_URL || 'http://localhost:8000/v1'}`,
+    `vLLM_MODEL=${merged.vLLM_MODEL || 'meta-llama/Meta-Llama-3-8B-Instruct'}`,
   ];
+
+  // Preserve any additional/custom keys (B11)
+  const additionalKeys = Object.keys(merged).filter(k => !standardKeys.has(k));
+  if (additionalKeys.length > 0) {
+    sections.push('', '# Custom / Additional Environment Variables');
+    for (const k of additionalKeys) {
+      sections.push(`${k}=${merged[k]}`);
+    }
+  }
+
   fs.writeFileSync(envPath, sections.join('\n'), 'utf-8');
 }
 
@@ -1501,6 +2213,182 @@ app.post('/api/admin/config', authenticateToken, async (req, res) => {
   }
 });
 
+const PROMPTS_DIR = path.join(process.cwd(), 'config', 'prompts');
+
+function getSafePromptPath(id: string): string | null {
+  if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+  const resolved = path.resolve(PROMPTS_DIR, `${id}.json`);
+  if (!resolved.startsWith(path.resolve(PROMPTS_DIR))) return null;
+  return resolved;
+}
+
+function readPromptFile(id: string) {
+  const filePath = getSafePromptPath(id);
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+function adminOrLocalAuth(req: any, res: any, next: any) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (token) {
+    return authenticateToken(req, res, () => {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin permissions required' });
+      }
+      next();
+    });
+  }
+  // P0.5 FIX: Never trust Host headers for auth bypass.
+  // Explicit opt-in only via environment variable ALLOW_LOCAL_ADMIN=true, checking physical socket IP.
+  if (process.env.ALLOW_LOCAL_ADMIN === 'true') {
+    const remoteIp = req.socket?.remoteAddress || '';
+    const isLoopback = remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1';
+    if (isLoopback) {
+      req.user = { id: 'local-admin', email: 'admin@tenant-alpha.com', role: 'admin', tenantId: 'de305d54-75b4-431b-adb2-eb6b9e546014' };
+      return next();
+    }
+  }
+  return res.status(401).json({ error: 'Access token is required' });
+}
+
+// 11c. GET all Prompts (Admin only)
+app.get('/api/admin/prompts', adminOrLocalAuth, async (req: any, res: any) => {
+  try {
+    if (!fs.existsSync(PROMPTS_DIR)) {
+      return res.json([]);
+    }
+    const files = fs.readdirSync(PROMPTS_DIR).filter(f => f.endsWith('.json'));
+    const prompts = files.map(file => {
+      const data = JSON.parse(fs.readFileSync(path.join(PROMPTS_DIR, file), 'utf-8'));
+      const defSys = data.default_system_prompt || '';
+      const defUsr = data.default_user_prompt || '';
+      const curSys = data.system_prompt || '';
+      const curUsr = data.user_prompt || '';
+      data.is_customized = (curSys !== defSys) || (curUsr !== defUsr);
+      return data;
+    });
+    res.json(prompts);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 11d. GET single Prompt (Admin only)
+app.get('/api/admin/prompts/:id', adminOrLocalAuth, async (req, res) => {
+  try {
+    const data = readPromptFile(req.params.id);
+    if (!data) return res.status(404).json({ error: 'Prompt-Schablone nicht gefunden' });
+    const defSys = data.default_system_prompt || '';
+    const defUsr = data.default_user_prompt || '';
+    data.is_customized = (data.system_prompt !== defSys) || (data.user_prompt !== defUsr);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 11e. PUT update Prompt (Admin only)
+app.put('/api/admin/prompts/:id', adminOrLocalAuth, async (req, res) => {
+  try {
+    const data = readPromptFile(req.params.id);
+    if (!data) return res.status(404).json({ error: 'Prompt-Schablone nicht gefunden' });
+
+    const { system_prompt, user_prompt } = req.body;
+    if (typeof system_prompt === 'string') data.system_prompt = system_prompt;
+    if (typeof user_prompt === 'string') data.user_prompt = user_prompt;
+
+    const defSys = data.default_system_prompt || '';
+    const defUsr = data.default_user_prompt || '';
+    data.is_customized = (data.system_prompt !== defSys) || (data.user_prompt !== defUsr);
+    data.updated_at = new Date().toISOString();
+
+    const filePath = getSafePromptPath(req.params.id);
+    if (!filePath) return res.status(400).json({ error: 'Invalid prompt ID' });
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    res.json({ success: true, prompt: data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 11f. POST reset Prompt to factory default (Admin only)
+app.post('/api/admin/prompts/:id/reset', adminOrLocalAuth, async (req, res) => {
+  try {
+    const data = readPromptFile(req.params.id);
+    if (!data) return res.status(404).json({ error: 'Prompt-Schablone nicht gefunden' });
+
+    data.system_prompt = data.default_system_prompt || data.system_prompt;
+    data.user_prompt = data.default_user_prompt || data.user_prompt;
+    data.is_customized = false;
+    data.updated_at = new Date().toISOString();
+
+    const filePath = getSafePromptPath(req.params.id);
+    if (!filePath) return res.status(400).json({ error: 'Invalid prompt ID' });
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    res.json({ success: true, prompt: data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 11g. POST preview Prompt with mock variables (Admin only)
+app.post('/api/admin/prompts/:id/preview', adminOrLocalAuth, async (req, res) => {
+  const user = req.user!;
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
+
+  try {
+    const data = readPromptFile(req.params.id);
+    if (!data) return res.status(404).json({ error: 'Prompt-Schablone nicht gefunden' });
+
+    const { system_prompt, user_prompt, sample_variables } = req.body;
+    let sysText = typeof system_prompt === 'string' ? system_prompt : data.system_prompt;
+    let usrText = typeof user_prompt === 'string' ? user_prompt : data.user_prompt;
+
+    const sample = {
+      course_title: 'KI-Softwareentwicklung & Agenten-Workflows',
+      target_audience: 'Softwareentwickler mit Backend-Erfahrung',
+      duration_desc: '8 Wochen (40 Unterrichtstage insgesamt, Mo-Fr)',
+      total_weeks: '8',
+      target_days: '40',
+      day_number: '1',
+      day_theme: 'Grundlagen & Moderne Entwicklungsumgebungen',
+      didactic_approach: 'Konzepteinführung gefolgt von geführten Programmierübungen',
+      daily_milestone: 'Lauffähiges Modul und verstandene Konzepte für Tag 1',
+      theory_ue: '3',
+      practice_ue: '4',
+      assessment_ue: '1',
+      ue_title: 'Theorie 1: Einführung in LLM-APIs & Schemas',
+      learning_objective: 'Verständnis für typisierte JSON-Schemas und API-Aufrufe',
+      content_outline_formatted: '- API-Anbindung\n- Fehlerbehandlung\n- Validierung',
+      topic: 'KI-Softwareentwicklung',
+      duration_str: 'zweiwöchigen',
+      course_topic: 'KI-Softwareentwicklung',
+      module_title: 'Modul 1: Grundlagen',
+      lesson_title: 'Lektion 1: Erste Schritte',
+      position: 'Folie 1 von 5',
+      slide_title: 'Architektur-Überblick',
+      bullets_txt: '- Client-Server\n- Datenbank\n- Queue',
+      ...(sample_variables || {})
+    };
+
+    for (const [k, v] of Object.entries(sample)) {
+      sysText = sysText.split(`{${k}}`).join(String(v));
+      usrText = usrText.split(`{${k}}`).join(String(v));
+    }
+
+    res.json({
+      success: true,
+      rendered_system_prompt: sysText,
+      rendered_user_prompt: usrText,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // In-memory cache for usage stats to avoid hitting external API rate limits
 let usageCache: { timestamp: number; data: any } | null = null;
 
@@ -1518,18 +2406,39 @@ app.get('/api/admin/usage', authenticateToken, async (req, res) => {
   }
 
   const env = readEnvFile();
+  const llmProvider = env.LLM_PROVIDER || 'zhipu';
+  const zhipuKey = env.ZHIPU_API_KEY || '';
   const openRouterKey = env.OPENROUTER_API_KEY || '';
   const elevenlabsKey = env.ELEVENLABS_API_KEY || '';
   const minimaxKey = env.MINIMAX_API_KEY || '';
   const minimaxGroupId = env.MINIMAX_GROUP_ID || '';
 
   const stats = {
+    provider: llmProvider,
+    zhipu: { success: false, usage: 'Nicht konfiguriert', model: env.ZHIPU_MODEL || 'glm-5.3-flash', label: 'Z.AI Coding Plan' },
     openrouter: { success: false, usage: 'Nicht konfiguriert', label: '' },
     elevenlabs: { success: false, usage: 'Nicht konfiguriert', characterCount: 0, characterLimit: 0 },
     minimax: { success: false, usage: 'Nicht konfiguriert', balance: '' },
   };
 
-  // 1. Fetch OpenRouter usage
+  // 1a. Check Z.AI / Zhipu usage
+  if (zhipuKey && zhipuKey !== 'mock-zhipu-key') {
+    stats.zhipu = {
+      success: true,
+      usage: 'Flatrate (GLM Coding Plan)',
+      model: env.ZHIPU_MODEL || 'glm-5.3-flash',
+      label: 'Z.AI Flatrate Aktiv',
+    };
+  } else if (zhipuKey === 'mock-zhipu-key') {
+    stats.zhipu = {
+      success: true,
+      usage: 'Flatrate (Mock-Modus)',
+      model: 'glm-5.3-flash',
+      label: 'Demo Key',
+    };
+  }
+
+  // 1b. Fetch OpenRouter usage
   if (openRouterKey && openRouterKey !== 'mock-openrouter-key') {
     try {
       const response = await fetch('https://openrouter.ai/api/v1/auth/key', {
@@ -1818,11 +2727,93 @@ app.post('/api/admin/config/test-minimax', authenticateToken, async (req, res) =
   }
 });
 
+// 12d. Test Zhipu / z.ai Key (Admin only)
+app.post('/api/admin/config/test-zhipu', authenticateToken, async (req, res) => {
+  const user = req.user!;
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
+
+  let { apiKey, baseUrl } = req.body;
+  if (!apiKey) {
+    return res.status(400).json({ error: 'API-Key ist erforderlich' });
+  }
+
+  if (apiKey.includes('***')) {
+    const env = readEnvFile();
+    apiKey = env.GLM_API_KEY || env.ZHIPU_API_KEY || '';
+  }
+  if (!baseUrl) {
+    const env = readEnvFile();
+    baseUrl = env.GLM_BASE_URL || env.ZHIPU_BASE_URL || process.env.GLM_BASE_URL || 'https://api.z.ai/api/coding/paas/v4/';
+  }
+
+  if (!apiKey || apiKey === 'mock-zhipu-key' || apiKey === 'mock-glm-key') {
+    return res.status(400).json({ error: 'Kein gültiger API-Key konfiguriert' });
+  }
+
+  try {
+    const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+    const response = await fetch(`${cleanBaseUrl}/models`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    });
+
+    if (response.ok) {
+      const data = (await response.json()) as any;
+      const rawList = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      const models = rawList.map((m: any) => (typeof m === 'string' ? m : (m?.id || m?.name || ''))).filter(Boolean);
+      return res.json({
+        success: true,
+        label: 'GLM / Z.ai verbunden',
+        modelsCount: models.length,
+        models,
+      });
+    } else {
+      const errText = await response.text();
+      let hint = '';
+      if (errText.includes('1113')) {
+        hint = ' (Z.ai Code 1113: Bei Coding-Plan-Abos muss der Endpunkt https://api.z.ai/api/coding/paas/v4/ aktiv sein)';
+      }
+      return res.status(400).json({
+        error: `Fehler von GLM/Z.ai (${response.status}): ${errText.slice(0, 150)}${hint}`,
+      });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: `Netzwerkfehler zu GLM/Z.ai: ${err.message}` });
+  }
+});
+
+// Alias for test-glm
+app.post('/api/admin/config/test-glm', authenticateToken, async (req, res, next) => {
+  // Delegate directly to test-zhipu logic
+  req.url = '/api/admin/config/test-zhipu';
+  app._router.handle(req, res, next);
+});
+
 // ==================== MOCK HEYGEN API ENDPOINTS ====================
 
-// Mock Endpoint to simulate HeyGen video rendering
-app.post('/api/mock/heygen/generate', (req, res) => {
+// Mock Endpoint to simulate HeyGen video rendering (B3 FIX: Protect endpoint and restrict webhookUrl to loopback to prevent SSRF)
+app.post('/api/mock/heygen/generate', adminOrLocalAuth, (req, res) => {
   const { videoId, courseId, script, audioUrl, webhookUrl } = req.body;
+
+  if (!webhookUrl || typeof webhookUrl !== 'string') {
+    return res.status(400).json({ error: 'webhookUrl is required' });
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(webhookUrl);
+  } catch {
+    return res.status(400).json({ error: 'Invalid webhookUrl format' });
+  }
+
+  const allowedHosts = ['localhost', '127.0.0.1', '::1', '[::1]'];
+  if (!allowedHosts.includes(parsedUrl.hostname.toLowerCase())) {
+    return res.status(400).json({ error: 'webhookUrl must target localhost / loopback address' });
+  }
   
   console.log(`[MOCK HEYGEN] Starting video generation. VideoID: ${videoId}, CourseID: ${courseId}`);
 
@@ -1861,6 +2852,631 @@ app.post('/api/mock/heygen/generate', (req, res) => {
   }, 3000);
 });
 
+// ==================== COURSE FACTORY INSPECTOR & IMPORT API ====================
+
+const COURSE_OUTPUT_DIR = path.join(process.cwd(), 'course_output');
+
+function getSafeCourseFactoryPath(...segments: string[]): string | null {
+  for (const seg of segments) {
+    if (!seg || !/^[a-zA-Z0-9_-]+$/.test(seg)) return null;
+  }
+  const resolved = path.resolve(COURSE_OUTPUT_DIR, ...segments);
+  const root = path.resolve(COURSE_OUTPUT_DIR);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) return null;
+  return resolved;
+}
+
+// 1. Get Course Factory Overview
+app.get('/api/course-factory/overview', adminOrLocalAuth, async (req, res) => {
+  try {
+    const masterPath = path.join(COURSE_OUTPUT_DIR, 'master_curriculum.json');
+    if (!fs.existsSync(masterPath)) {
+      return res.json({ exists: false, message: 'No course_output generated yet.' });
+    }
+
+    const curriculum = JSON.parse(fs.readFileSync(masterPath, 'utf-8'));
+    
+    // Scan generated weeks & days on disk
+    const generatedTree: Record<string, number[]> = {};
+    if (fs.existsSync(COURSE_OUTPUT_DIR)) {
+      const entries = fs.readdirSync(COURSE_OUTPUT_DIR, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.startsWith('week_')) {
+          const weekNum = entry.name.replace('week_', '');
+          const weekPath = path.join(COURSE_OUTPUT_DIR, entry.name);
+          const dayEntries = fs.readdirSync(weekPath, { withFileTypes: true });
+          const days: number[] = [];
+          for (const d of dayEntries) {
+            if (d.isDirectory() && d.name.startsWith('day_')) {
+              days.push(parseInt(d.name.replace('day_', ''), 10));
+            }
+          }
+          days.sort((a, b) => a - b);
+          generatedTree[weekNum] = days;
+        }
+      }
+    }
+
+    res.json({
+      exists: true,
+      curriculum,
+      generatedTree,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Get Day Plan
+app.get('/api/course-factory/day', adminOrLocalAuth, async (req, res) => {
+  const rawWeek = String(req.query.week || '').replace(/^week_/, '');
+  const rawDay = String(req.query.day || '').replace(/^day_/, '');
+
+  if (!/^\d+$/.test(rawWeek) || !/^\d+$/.test(rawDay)) {
+    return res.status(400).json({ error: 'Parameters week and day must be valid numbers' });
+  }
+
+  try {
+    const dayPlanPath = getSafeCourseFactoryPath(`week_${rawWeek}`, `day_${rawDay}`, `day_${rawDay}_plan.json`);
+    if (!dayPlanPath || !fs.existsSync(dayPlanPath)) {
+      return res.status(404).json({ error: `Day plan not found at week ${rawWeek}, day ${rawDay}` });
+    }
+
+    const data = JSON.parse(fs.readFileSync(dayPlanPath, 'utf-8'));
+    const dayDir = getSafeCourseFactoryPath(`week_${rawWeek}`, `day_${rawDay}`);
+
+    if (Array.isArray(data.units) && dayDir && fs.existsSync(dayDir)) {
+      const subdirs = fs.readdirSync(dayDir);
+      for (const unit of data.units) {
+        const prefix = `ue_${unit.ue_number}_`;
+        const matchingDir = subdirs.find(d => d.startsWith(prefix));
+        if (matchingDir) {
+          const files = fs.readdirSync(path.join(dayDir, matchingDir));
+          unit.isGenerated = files.length > 0;
+        } else {
+          unit.isGenerated = false;
+        }
+      }
+    }
+
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Get Unit Artifacts
+app.get('/api/course-factory/ue', adminOrLocalAuth, async (req, res) => {
+  const rawWeek = String(req.query.week || '').replace(/^week_/, '');
+  const rawDay = String(req.query.day || '').replace(/^day_/, '');
+  const rawUe = String(req.query.ue || '').replace(/^ue_/, '');
+
+  if (!/^\d+$/.test(rawWeek) || !/^\d+$/.test(rawDay) || !/^\d+$/.test(rawUe)) {
+    return res.status(400).json({ error: 'Parameters week, day, and ue must be valid numbers' });
+  }
+
+  try {
+    const dayDir = getSafeCourseFactoryPath(`week_${rawWeek}`, `day_${rawDay}`);
+    if (!dayDir || !fs.existsSync(dayDir)) {
+      return res.status(404).json({ error: `Day directory not found at week ${rawWeek}, day ${rawDay}` });
+    }
+
+    const entries = fs.readdirSync(dayDir, { withFileTypes: true });
+    const ueDirEntry = entries.find(e => e.isDirectory() && e.name.startsWith(`ue_${rawUe}_`));
+
+    if (!ueDirEntry) {
+      return res.status(404).json({ error: `UE directory for UE ${rawUe} not found` });
+    }
+
+    const ueDir = getSafeCourseFactoryPath(`week_${rawWeek}`, `day_${rawDay}`, ueDirEntry.name);
+    if (!ueDir || !fs.existsSync(ueDir)) {
+      return res.status(404).json({ error: `UE directory not found` });
+    }
+    const artifacts: Record<string, any> = {
+      folderName: ueDirEntry.name,
+    };
+
+    // Video Script Artifacts
+    const slidesPath = path.join(ueDir, 'slides.json');
+    if (fs.existsSync(slidesPath)) {
+      artifacts.slides = JSON.parse(fs.readFileSync(slidesPath, 'utf-8'));
+    }
+    const scriptPath = path.join(ueDir, 'elevenlabs_script.txt');
+    if (fs.existsSync(scriptPath)) {
+      artifacts.elevenlabsScript = fs.readFileSync(scriptPath, 'utf-8');
+    }
+
+    // Coding Exercise Artifacts
+    const instructionsPath = path.join(ueDir, 'instructions.md');
+    if (fs.existsSync(instructionsPath)) {
+      artifacts.instructions = fs.readFileSync(instructionsPath, 'utf-8');
+    }
+    const bpDir = path.join(ueDir, 'boilerplate');
+    if (fs.existsSync(bpDir)) {
+      artifacts.boilerplate = {};
+      for (const f of fs.readdirSync(bpDir)) {
+        if (!f.includes('..')) {
+          artifacts.boilerplate[f] = fs.readFileSync(path.join(bpDir, f), 'utf-8');
+        }
+      }
+    }
+    const solDir = path.join(ueDir, 'solution');
+    if (fs.existsSync(solDir)) {
+      artifacts.solution = {};
+      for (const f of fs.readdirSync(solDir)) {
+        if (!f.includes('..')) {
+          artifacts.solution[f] = fs.readFileSync(path.join(solDir, f), 'utf-8');
+        }
+      }
+    }
+    const critPath = path.join(ueDir, 'validation_criteria.json');
+    if (fs.existsSync(critPath)) {
+      artifacts.validationCriteria = JSON.parse(fs.readFileSync(critPath, 'utf-8'));
+    }
+
+    // Quiz Artifacts
+    const quizPath = path.join(ueDir, 'quiz.json');
+    if (fs.existsSync(quizPath)) {
+      artifacts.quiz = JSON.parse(fs.readFileSync(quizPath, 'utf-8'));
+    }
+
+    res.json(artifacts);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Import Checked Course into PostgreSQL DB
+app.post('/api/course-factory/import', adminOrLocalAuth, async (req, res) => {
+  const user = req.user!;
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin permissions required' });
+  }
+
+  try {
+    const masterPath = path.join(COURSE_OUTPUT_DIR, 'master_curriculum.json');
+    if (!fs.existsSync(masterPath)) {
+      return res.status(400).json({ error: 'Kein master_curriculum.json in course_output gefunden.' });
+    }
+
+    const curriculum = JSON.parse(fs.readFileSync(masterPath, 'utf-8'));
+
+    // Insert Course
+    const [course] = await db.insert(courses).values({
+      userId: user.id,
+      tenantId: user.tenantId,
+      topic: curriculum.course_title,
+      status: 'curriculum_draft',
+      progress: { duration: `${curriculum.total_weeks || 8}_weeks`, percent: 50, step: 'content_draft' },
+    }).returning();
+
+    // Iterate through weeks (as modules)
+    for (let w = 0; w < curriculum.weeks.length; w++) {
+      const week = curriculum.weeks[w];
+      const [newModule] = await db.insert(modules).values({
+        courseId: course.id,
+        sequenceOrder: week.week_number,
+        title: `Woche ${week.week_number}: ${week.week_theme}`,
+      }).returning();
+
+      // Read days for this week
+      for (const dayOverview of week.days) {
+        const dayNum = dayOverview.day_number;
+        const dayPlanPath = path.join(COURSE_OUTPUT_DIR, `week_${week.week_number}`, `day_${dayNum}`, `day_${dayNum}_plan.json`);
+        
+        let units: any[] = [];
+        if (fs.existsSync(dayPlanPath)) {
+          const planData = JSON.parse(fs.readFileSync(dayPlanPath, 'utf-8'));
+          units = planData.units || [];
+        }
+
+        for (const unit of units) {
+          const ueDirMatch = `ue_${unit.ue_number}_`;
+          const dayDir = path.join(COURSE_OUTPUT_DIR, `week_${week.week_number}`, `day_${dayNum}`);
+          let ueDir: string | null = null;
+          if (fs.existsSync(dayDir)) {
+            const dEntries = fs.readdirSync(dayDir);
+            const found = dEntries.find(d => d.startsWith(ueDirMatch));
+            if (found) ueDir = path.join(dayDir, found);
+          }
+
+          let slides: any[] = [];
+          let teleprompterScript = '';
+          let textContent = '';
+          let quizQuestions: any[] = [];
+          let exerciseData: any = null;
+          let boilerplateFiles: Record<string, string> = {};
+          let solutionFiles: Record<string, string> = {};
+          let valCriteria: string[] = [];
+
+          if (ueDir && fs.existsSync(ueDir)) {
+            const sPath = path.join(ueDir, 'slides.json');
+            if (fs.existsSync(sPath)) {
+              try {
+                const sData = JSON.parse(fs.readFileSync(sPath, 'utf-8'));
+                // Map Course Factory slides to Learning Player format (Befund 12)
+                slides = (sData.slides || []).map((s: any) => {
+                  let layout = 'bullets';
+                  let codeSnippet = '';
+                  let mermaidCode = '';
+
+                  if (s.layout_type === 'Code_Snippet') {
+                    layout = 'code';
+                    codeSnippet = (s.on_slide_text?.bullet_points_or_code || []).join('\n');
+                  } else if (s.layout_type === 'Diagram') {
+                    layout = 'mermaid';
+                    mermaidCode = s.visual_description?.includes('graph') ? s.visual_description : '';
+                  } else if (s.layout_type === 'Illustrated') {
+                    layout = 'illustrated';
+                  }
+
+                  const imageCues = (s.image_cues || []).map((c: any) => ({
+                    timestamp_percent: c.timestamp_percent ?? 0,
+                    prompt: c.prompt || '',
+                    transition: c.transition || 'fade',
+                    image_url: c.image_url ? (c.image_url.startsWith('/') ? c.image_url : `/${c.image_url.replace(/\\/g, '/')}`) : '',
+                  }));
+                  const primaryImageUrl = s.image_url || (imageCues.length > 0 ? imageCues[0].image_url : '');
+
+                  return {
+                    title: s.on_slide_text?.heading || s.title || `Folie ${s.slide_number || 1}`,
+                    layout: s.layout || layout,
+                    bullets: s.on_slide_text?.bullet_points_or_code || s.bullets || [],
+                    speaker_notes: s.elevenlabs_script || s.speaker_notes || '',
+                    narration: s.elevenlabs_script || s.narration || '',
+                    code_snippet: s.code_snippet || codeSnippet,
+                    code_language: s.code_language || 'python',
+                    mermaid_code: s.mermaid_code || mermaidCode,
+                    visual_description: s.visual_description || '',
+                    layout_type: s.layout_type,
+                    image_url: primaryImageUrl ? (primaryImageUrl.startsWith('/') ? primaryImageUrl : `/${primaryImageUrl.replace(/\\/g, '/')}`) : '',
+                    image_cues: imageCues,
+                  };
+                });
+              } catch (_) {}
+            }
+            const scriptP = path.join(ueDir, 'elevenlabs_script.txt');
+            if (fs.existsSync(scriptP)) {
+              teleprompterScript = fs.readFileSync(scriptP, 'utf-8');
+            }
+            const instrP = path.join(ueDir, 'instructions.md');
+            if (fs.existsSync(instrP)) {
+              textContent = fs.readFileSync(instrP, 'utf-8');
+            }
+            const qPath = path.join(ueDir, 'quiz.json');
+            if (fs.existsSync(qPath)) {
+              const qData = JSON.parse(fs.readFileSync(qPath, 'utf-8'));
+              quizQuestions = (qData.questions || [])
+                .map((q: any) => {
+                  const optLetter = String(q.correct_option || '').trim().toUpperCase();
+                  const matchedIdx = ['A', 'B', 'C', 'D'].indexOf(optLetter);
+                  if (matchedIdx < 0) {
+                    // Fail-closed: never map an invalid letter to a silent wrong answer
+                    console.warn(`[course-factory/import] Frage übersprungen (ungültiger correct_option "${q.correct_option}"): ${q.question_text}`);
+                    return null;
+                  }
+                  return {
+                    question: q.question_text,
+                    options: [q.options?.A || '', q.options?.B || '', q.options?.C || '', q.options?.D || ''],
+                    correct_option_index: matchedIdx,
+                    explanation: q.explanation,
+                  };
+                })
+                .filter((q: any) => q !== null);
+            }
+
+            // Extract coding exercise artifacts (Befund 13)
+            const exPath = path.join(ueDir, 'exercise.json');
+            if (fs.existsSync(exPath)) {
+              try { exerciseData = JSON.parse(fs.readFileSync(exPath, 'utf-8')); } catch (_) {}
+            }
+            const bpDir = path.join(ueDir, 'boilerplate');
+            const solDir = path.join(ueDir, 'solution');
+            const valPath = path.join(ueDir, 'validation_criteria.json');
+
+            if (fs.existsSync(bpDir) && fs.statSync(bpDir).isDirectory()) {
+              for (const bf of fs.readdirSync(bpDir)) {
+                const bfp = path.join(bpDir, bf);
+                if (fs.statSync(bfp).isFile()) boilerplateFiles[bf] = fs.readFileSync(bfp, 'utf-8');
+              }
+            }
+            if (fs.existsSync(solDir) && fs.statSync(solDir).isDirectory()) {
+              for (const sf of fs.readdirSync(solDir)) {
+                const sfp = path.join(solDir, sf);
+                if (fs.statSync(sfp).isFile()) solutionFiles[sf] = fs.readFileSync(sfp, 'utf-8');
+              }
+            }
+            if (fs.existsSync(valPath)) {
+              try { valCriteria = JSON.parse(fs.readFileSync(valPath, 'utf-8')); } catch (_) {}
+            }
+
+            if (unit.ue_type === 'practice' || unit.target_agent === 'coding_exercise_agent') {
+              let practiceMd = textContent || `# ${unit.ue_title}\n\n${unit.learning_objective}`;
+              if (Object.keys(boilerplateFiles).length > 0) {
+                practiceMd += '\n\n## Starter-Code (# TODO)\n';
+                for (const [fname, code] of Object.entries(boilerplateFiles)) {
+                  practiceMd += `\n**Datei: \`${fname}\`**\n\`\`\`python\n${code}\n\`\`\`\n`;
+                }
+              }
+              if (valCriteria.length > 0) {
+                practiceMd += '\n\n## Akzeptanzkriterien\n';
+                for (const c of valCriteria) {
+                  practiceMd += `- ${c}\n`;
+                }
+              }
+              textContent = practiceMd;
+            }
+          }
+
+          const [newLesson] = await db.insert(lessons).values({
+            moduleId: newModule.id,
+            tenantId: user.tenantId,
+            sequenceOrder: unit.ue_number || 1,
+            title: `Tag ${dayNum} - UE ${unit.ue_number}: ${unit.ue_title}`,
+            contentPayload: {
+              description: unit.learning_objective,
+              estimated_duration_minutes: 45,
+              slides,
+              text_content: textContent,
+              teleprompter_script: teleprompterScript,
+              quiz: quizQuestions,
+              target_agent: unit.target_agent,
+              ue_type: unit.ue_type,
+              exercise: (() => {
+                // Normalize Factory exercise.json (files[]) + disk dirs into player maps.
+                const fromJsonBp: Record<string, string> = {};
+                const fromJsonSol: Record<string, string> = {};
+                if (exerciseData?.files && Array.isArray(exerciseData.files)) {
+                  for (const f of exerciseData.files) {
+                    if (f?.filename && typeof f.boilerplate_code === 'string') {
+                      fromJsonBp[f.filename] = f.boilerplate_code;
+                    }
+                    if (f?.filename && typeof f.solution_code === 'string') {
+                      fromJsonSol[f.filename] = f.solution_code;
+                    }
+                  }
+                }
+                const boilerplate = Object.keys(boilerplateFiles).length > 0 ? boilerplateFiles : fromJsonBp;
+                const solution = Object.keys(solutionFiles).length > 0 ? solutionFiles : fromJsonSol;
+                const criteria = valCriteria.length > 0
+                  ? valCriteria
+                  : (Array.isArray(exerciseData?.validation_criteria) ? exerciseData.validation_criteria : []);
+
+                if (Object.keys(boilerplate).length === 0 && !exerciseData) {
+                  return undefined;
+                }
+                return {
+                  exercise_title: exerciseData?.exercise_title || exerciseData?.ue_title || unit.ue_title,
+                  difficulty_level: exerciseData?.difficulty_level,
+                  student_instructions_md: exerciseData?.student_instructions_md,
+                  boilerplate,
+                  solution,
+                  validation_criteria: criteria,
+                };
+              })(),
+            },
+          }).returning();
+
+          // Generate RAG embeddings for this lesson (Befund 14)
+          const textForEmbedding = `${unit.ue_title}\n${unit.learning_objective}\n${textContent || ''}`.slice(0, 8000);
+          try {
+            const embRes = await fetch(`${AI_SERVICE_URL}/generate-embeddings`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: textForEmbedding, tenant_id: user.tenantId }),
+            });
+            if (embRes.ok) {
+              const embData = await embRes.json() as any;
+              if (embData?.embedding) {
+                await withTenant(user.tenantId, async (tx) => {
+                  await tx.delete(embeddings).where(eq(embeddings.lessonId, newLesson.id));
+                  await tx.insert(embeddings).values({
+                    lessonId: newLesson.id,
+                    tenantId: user.tenantId,
+                    embedding: embData.embedding,
+                  });
+                });
+              }
+            }
+          } catch (embErr) {
+            console.warn(`[course-factory/import] Could not generate embeddings for lesson ${newLesson.id}:`, embErr);
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, courseId: course.id, message: `Kurs "${curriculum.course_title}" erfolgreich in Datenbank importiert!` });
+  } catch (err: any) {
+    console.error('[course-factory/import] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+let runningOrchestratorProcess: ChildProcess | null = null;
+
+// 5. Get Live Generation Progress
+app.get('/api/course-factory/progress', adminOrLocalAuth, async (req, res) => {
+  try {
+    const env = readEnvFile();
+    const activeProvider = env.LLM_PROVIDER || process.env.LLM_PROVIDER || 'glm';
+    const isGlm = ['glm', 'zhipu', 'zai'].includes(activeProvider.toLowerCase());
+    const activeModel = isGlm ? (env.GLM_MODEL || env.ZHIPU_MODEL || 'glm-5.3') : (env.OPENROUTER_MODEL || 'google/gemini-2.5-pro');
+
+    const progressPath = path.join(COURSE_OUTPUT_DIR, 'progress.json');
+    if (!fs.existsSync(progressPath)) {
+      return res.json({
+        status: runningOrchestratorProcess ? 'running' : 'idle',
+        current_phase: 'none',
+        current_step: 'Bereit zum Start',
+        total_ues: 320,
+        completed_ues: 0,
+        percent: 0,
+        llm_provider: activeProvider,
+        llm_model: activeModel,
+        isRunning: runningOrchestratorProcess !== null,
+      });
+    }
+
+    const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+    res.json({
+      ...data,
+      llm_provider: data.llm_provider || activeProvider,
+      llm_model: data.llm_model || activeModel,
+      isRunning: runningOrchestratorProcess !== null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Start / Resume Course Factory Generation
+app.post('/api/course-factory/start-generation', adminOrLocalAuth, async (req, res) => {
+  if (runningOrchestratorProcess) {
+    return res.status(400).json({ error: 'Course Factory läuft bereits im Hintergrund.' });
+  }
+
+  const { topic, audience, durationPreset, maxWeeks, maxDays, forceMock, forceRegenerate, llmProvider } = req.body;
+  const courseTopic = topic || 'KI-gestützte Softwareentwicklung und Agenten-Workflows';
+  const targetAudience = audience || 'Softwareentwickler mit Backend-Erfahrung';
+
+  let effWeeks = maxWeeks ? Number(maxWeeks) : undefined;
+  let effDays = maxDays ? Number(maxDays) : undefined;
+
+  if (durationPreset) {
+    switch (durationPreset) {
+      case '1slide':
+      case '1_slide':
+      case 'mini':
+      case 'minikurs':
+        effDays = 1;
+        effWeeks = 1;
+        break;
+      case '1day':
+      case '1_day':
+        effDays = 1;
+        effWeeks = 1;
+        break;
+      case '1week':
+        effWeeks = 1;
+        effDays = 5;
+        break;
+      case '2weeks':
+        effWeeks = 2;
+        effDays = 10;
+        break;
+      case '4weeks':
+      case '1month':
+        effWeeks = 4;
+        effDays = 20;
+        break;
+      case '6weeks':
+        effWeeks = 6;
+        effDays = 30;
+        break;
+      case '8weeks':
+      case '2months':
+        effWeeks = 8;
+        effDays = 40;
+        break;
+    }
+  }
+
+  // Ensure stop_requested is false in progress.json so it starts cleanly
+  try {
+    const progressPath = path.join(COURSE_OUTPUT_DIR, 'progress.json');
+    if (fs.existsSync(progressPath)) {
+      const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+      data.stop_requested = false;
+      data.status = 'running';
+      data.current_step = 'Starte Pipeline & prüfe Checkpoints...';
+      if (llmProvider) {
+        data.llm_provider = llmProvider;
+        data.llm_model = ['glm', 'zhipu', 'zai'].includes(String(llmProvider).toLowerCase()) ? 'glm-5.3' : 'google/gemini-2.5-pro';
+      }
+      fs.writeFileSync(progressPath, JSON.stringify(data, null, 2), 'utf-8');
+    }
+  } catch (e) {
+    console.error('Error resetting progress.json before start:', e);
+  }
+
+  const pyArgs = [
+    '-m', 'src.course_factory.orchestrator',
+    '--topic', courseTopic,
+    '--audience', targetAudience,
+    '--output-dir', 'course_output',
+  ];
+
+  if (llmProvider) {
+    const normProvider = String(llmProvider).toLowerCase().trim();
+    pyArgs.push('--llm-provider', normProvider);
+    process.env.LLM_PROVIDER = normProvider;
+  }
+
+  if (forceMock || process.env.NODE_ENV === 'test') {
+    pyArgs.push('--mock');
+  }
+
+  if (forceRegenerate) {
+    pyArgs.push('--force-regenerate');
+  }
+
+  if (effWeeks) {
+    pyArgs.push('--max-weeks', String(effWeeks));
+  }
+  if (effDays) {
+    pyArgs.push('--max-days', String(effDays));
+  }
+
+  try {
+    console.log(`[COURSE FACTORY START] Spawning: python ${pyArgs.join(' ')}`);
+    runningOrchestratorProcess = spawn('python', pyArgs, {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+    });
+
+    runningOrchestratorProcess.on('exit', (code) => {
+      console.log(`[COURSE FACTORY EXIT] Process exited with code ${code}`);
+      runningOrchestratorProcess = null;
+    });
+
+    res.json({ success: true, message: 'Course Factory Pipeline im Hintergrund gestartet.' });
+  } catch (err: any) {
+    runningOrchestratorProcess = null;
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Stop / Pause Course Factory Generation
+app.post('/api/course-factory/stop-generation', adminOrLocalAuth, async (req, res) => {
+  try {
+    const progressPath = path.join(COURSE_OUTPUT_DIR, 'progress.json');
+    if (fs.existsSync(progressPath)) {
+      const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+      data.stop_requested = true;
+      data.status = 'stopping';
+      data.current_step = 'Stop-Signal empfangen – halte nach aktueller Einheit an...';
+      fs.writeFileSync(progressPath, JSON.stringify(data, null, 2), 'utf-8');
+    }
+
+    if (runningOrchestratorProcess) {
+      // Graceful timeout (4 seconds) then kill if process hasn't exited cleanly
+      setTimeout(() => {
+        if (runningOrchestratorProcess) {
+          console.log('[COURSE FACTORY STOP] Graceful timeout expired, killing process.');
+          try {
+            runningOrchestratorProcess.kill();
+          } catch (e) {}
+          runningOrchestratorProcess = null;
+        }
+      }, 4000);
+    }
+
+    res.json({ success: true, message: 'Stop-Signal gesendet. Die Pipeline pausiert an der aktuellen Einheit.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Start Express Server
 async function startServer() {
   try {
@@ -1881,5 +3497,6 @@ if (require.main === module) {
   startServer();
 }
 
-// Trigger restart (v5)
+export { app };
+
 

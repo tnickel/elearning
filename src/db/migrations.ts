@@ -2,6 +2,7 @@ import { db } from './index';
 import { sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import * as path from 'path';
+import crypto from 'crypto';
 
 export async function runMigrations() {
   console.log('Running Drizzle migrations...');
@@ -16,11 +17,55 @@ export async function runMigrations() {
   console.log('Drizzle migrations completed.');
   console.log('Applying custom RLS and Index DDL...');
 
-  // 3. Create HNSW index on the embeddings table
-  // HNSW requires vector_cosine_ops or vector_l2_ops. We use cosine similarity (vector_cosine_ops).
+  // 3. Ensure embeddings column is vector(384) (native MiniLM; no zero-pad).
+  // Mixed / padded 1536-d vectors break cosine RAG — wipe and recreate column if needed.
   await db.execute(sql`
-    CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON embeddings 
+    DO $$
+    DECLARE
+      current_type text;
+    BEGIN
+      SELECT format_type(a.atttypid, a.atttypmod) INTO current_type
+      FROM pg_attribute a
+      WHERE a.attrelid = 'embeddings'::regclass
+        AND a.attname = 'embedding'
+        AND NOT a.attisdropped;
+
+      IF current_type IS NULL THEN
+        ALTER TABLE embeddings ADD COLUMN embedding vector(384) NOT NULL;
+      ELSIF current_type IS DISTINCT FROM 'vector(384)' THEN
+        DROP INDEX IF EXISTS embeddings_hnsw_idx;
+        -- Wipe old vectors (wrong dim / zero-padded) then recreate column.
+        DELETE FROM embeddings;
+        ALTER TABLE embeddings DROP COLUMN embedding;
+        ALTER TABLE embeddings ADD COLUMN embedding vector(384) NOT NULL;
+      END IF;
+    END
+    $$;
+  `);
+
+  // HNSW requires vector_cosine_ops. Cosine similarity for RAG.
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON embeddings
     USING hnsw (embedding vector_cosine_ops);
+  `);
+
+  // 3b. B-tree indexes on hot FK columns (heartbeats do a per-session
+  // ORDER BY on every request; course detail loads lessons per module).
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS modules_course_id_idx ON modules (course_id);`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS lessons_module_id_idx ON lessons (module_id);`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS embeddings_lesson_id_idx ON embeddings (lesson_id);`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS activity_logs_session_id_timestamp_idx ON activity_logs (session_id, timestamp);`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS activity_logs_user_id_idx ON activity_logs (user_id);`);
+
+  // 3c. Stable lesson order inside a module (createdAt ties within one transaction)
+  await db.execute(sql`ALTER TABLE lessons ADD COLUMN IF NOT EXISTS sequence_order integer NOT NULL DEFAULT 0;`);
+  await db.execute(sql`
+    UPDATE lessons SET sequence_order = sub.rn
+    FROM (
+      SELECT id, ROW_NUMBER() OVER (PARTITION BY module_id ORDER BY created_at, id) AS rn
+      FROM lessons
+    ) AS sub
+    WHERE lessons.id = sub.id AND lessons.sequence_order = 0;
   `);
 
   // 4. Enable Row-Level Security (RLS) on embeddings table
@@ -47,16 +92,18 @@ export async function runMigrations() {
     $$;
   `);
 
-  // 6. Create a non-superuser app role for RLS validation
-  await db.execute(sql`
+  // 6. Create a non-superuser app role for RLS validation (random password,
+  //    never a hardcoded constant in the repo)
+  const appRolePassword = crypto.randomBytes(24).toString('base64url');
+  await db.execute(sql.raw(`
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'elearning_app') THEN
-        CREATE ROLE elearning_app WITH LOGIN PASSWORD 'elearning_app_password';
+        CREATE ROLE elearning_app WITH LOGIN PASSWORD '${appRolePassword}';
       END IF;
     END
     $$;
-  `);
+  `));
 
   // GRANT can fail with "tuple concurrently updated" when multiple processes
   // (server + start.bat + worker) run migrations at the same time. Retry briefly.

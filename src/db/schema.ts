@@ -1,14 +1,16 @@
-import { pgTable, uuid, text, integer, timestamp, jsonb, customType } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, jsonb, customType, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
-// Custom pgvector type for Drizzle (1536 dimensions for text-embedding-3-small / local bge-m3)
-export const pgVector1536 = customType<{ data: number[] }>({
+// Custom pgvector type — 384 dims match local all-MiniLM-L6-v2 (no zero-padding).
+// Remote providers must request the same dimension or fail cleanly.
+export const EMBEDDING_DIMENSIONS = 384;
+export const pgVector384 = customType<{ data: number[] }>({
   dataType() {
-    return 'vector(1536)';
+    return 'vector(384)';
   },
   toDriver(value: number[]): string {
-    if (!Array.isArray(value) || value.length !== 1536) {
-      throw new Error(`Vector must be an array of length 1536. Got ${value ? value.length : 'null'}`);
+    if (!Array.isArray(value) || value.length !== EMBEDDING_DIMENSIONS) {
+      throw new Error(`Vector must be an array of length ${EMBEDDING_DIMENSIONS}. Got ${value ? value.length : 'null'}`);
     }
     return `[${value.join(',')}]`;
   },
@@ -62,7 +64,9 @@ export const modules = pgTable('modules', {
   sequenceOrder: integer('sequence_order').notNull(),
   title: text('title').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => ({
+  courseIdx: index('modules_course_id_idx').on(t.courseId),
+}));
 
 // Relations for Modules
 export const modulesRelations = relations(modules, ({ one, many }) => ({
@@ -78,11 +82,14 @@ export const lessons = pgTable('lessons', {
   id: uuid('id').defaultRandom().primaryKey(),
   moduleId: uuid('module_id').references(() => modules.id, { onDelete: 'cascade' }).notNull(),
   tenantId: uuid('tenant_id').notNull(),
+  sequenceOrder: integer('sequence_order').notNull().default(0), // stable order inside a module (createdAt ties inside one tx)
   title: text('title').notNull(),
   contentPayload: jsonb('content_payload').notNull(), // contains teleprompter script, text, quiz
   videoUrl: text('video_url'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => ({
+  moduleIdx: index('lessons_module_id_idx').on(t.moduleId),
+}));
 
 // Relations for Lessons
 export const lessonsRelations = relations(lessons, ({ one, many }) => ({
@@ -98,9 +105,11 @@ export const embeddings = pgTable('embeddings', {
   id: uuid('id').defaultRandom().primaryKey(),
   lessonId: uuid('lesson_id').references(() => lessons.id, { onDelete: 'cascade' }).notNull(),
   tenantId: uuid('tenant_id').notNull(),
-  embedding: pgVector1536('embedding').notNull(),
+  embedding: pgVector384('embedding').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => ({
+  lessonIdx: index('embeddings_lesson_id_idx').on(t.lessonId),
+}));
 
 // Relations for Embeddings
 export const embeddingsRelations = relations(embeddings, ({ one }) => ({
@@ -119,7 +128,10 @@ export const activityLogs = pgTable('activity_logs', {
   cryptoHash: text('crypto_hash').notNull(),
   previousHash: text('previous_hash').notNull(),
   timestamp: timestamp('timestamp').notNull().defaultNow(),
-});
+}, (t) => ({
+  sessionIdx: index('activity_logs_session_id_timestamp_idx').on(t.sessionId, t.timestamp),
+  userIdx: index('activity_logs_user_id_idx').on(t.userId),
+}));
 
 // Relations for ActivityLogs
 export const activityLogsRelations = relations(activityLogs, ({ one }) => ({

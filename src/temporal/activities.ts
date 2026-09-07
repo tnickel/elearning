@@ -1,5 +1,6 @@
 import { db, withTenant, inList } from '../db';
 import { courses, modules, lessons, embeddings } from '../db/schema';
+import { writeSilentMockMp3 } from '../server/tts';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import * as dotenv from 'dotenv';
@@ -8,7 +9,7 @@ import * as path from 'path';
 
 dotenv.config();
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8085';
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'mock-elevenlabs-key';
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
 const HEYGEN_API_URL = process.env.HEYGEN_API_URL || 'http://localhost:3000/api/mock/heygen';
@@ -122,7 +123,7 @@ export async function generateLessonsAndEmbeddings(courseId: string, topic: stri
       .set({ contentPayload: content })
       .where(eq(lessons.id, lesson.id));
 
-    // Generate 1536-dimensional embeddings for RAG
+    // Generate 384-dimensional embeddings for RAG (native MiniLM / matching API dims)
     // We embed the text content (theory) of the lesson
     console.log(`Generating vector embedding for lesson: ${lesson.title}`);
     const embeddingResponse = (await callAiService('/generate-embeddings', {
@@ -192,15 +193,20 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
   // Loop over all lessons and generate media for each!
   for (let i = 0; i < allLessons.length; i++) {
     const lesson = allLessons[i];
-    const payload = lesson.contentPayload as any;
-    // Prefer per-slide speaker_notes (PPTX Vision pipeline); fall back to lesson teleprompter
+    const payload = (lesson.contentPayload || {}) as any;
+    // Prefer per-slide speaker_notes (PPTX Vision pipeline); fall back to teleprompter or slide bullets
     const slideNotes = (payload.slides || [])
       .map((s: any) => (s.speaker_notes || '').trim())
       .filter(Boolean);
-    const script =
-      slideNotes.length > 0
-        ? slideNotes.join('\n\n')
-        : (payload.teleprompter_script || 'Willkommen bei dieser Lektion.');
+
+    let script = '';
+    if (slideNotes.length > 0) {
+      script = slideNotes.join('\n\n');
+    } else if (payload.teleprompter_script && payload.teleprompter_script.trim().length > 10) {
+      script = payload.teleprompter_script.trim();
+    } else {
+      throw new Error(`Fehlendes Sprechskript für Lektion "${lesson.title}". Bitte in Schritt 2 generieren oder manuell erfassen.`);
+    }
 
     let lessonMediaUrl = '';
 
@@ -242,22 +248,30 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
         if (data?.base_resp?.status_code !== undefined && data.base_resp.status_code !== 0) {
           throw new Error(`MiniMax API Error ${data.base_resp.status_code}: ${data.base_resp.status_msg}`);
         }
-        // MiniMax returns base64-encoded audio in data.audio.audio
-        if (!data?.audio?.audio) {
+        // MiniMax returns audio in data.data.audio or data.audio (Befund 16)
+        const rawAudio = data?.data?.audio || data?.audio?.audio || data?.audio;
+        if (!rawAudio) {
           throw new Error('MiniMax response missing audio data');
         }
-        const audioBuffer = Buffer.from(data.audio.audio, 'hex');
+        const audioBuffer = Buffer.from(rawAudio, 'hex');
         const fileName = `audio-${courseId}-${lesson.id}.mp3`;
         fs.writeFileSync(path.join(audioDir, fileName), audioBuffer);
         lessonMediaUrl = `/audio/${fileName}`;
         console.log(`[TTS/MiniMax] Audio synthesized successfully for lesson: "${lesson.title}".`);
       } catch (err: any) {
-        console.error(`[TTS/MiniMax] Call failed for lesson "${lesson.title}": ${err.message}. Using fallback mock audio.`);
-        lessonMediaUrl = 'https://www.w3schools.com/html/mov_bbb.mp4';
+        console.error(`[TTS/MiniMax] Call failed for lesson "${lesson.title}": ${err.message}.`);
+        throw new Error(`MiniMax TTS synthesis failed for lesson "${lesson.title}": ${err.message}`);
       }
     } else if (TTS_PROVIDER === 'minimax' && isMockMiniMax) {
-      console.log(`[TTS/MiniMax] Running in MOCK mode for lesson "${lesson.title}" (API key or Group ID missing).`);
-      lessonMediaUrl = 'https://www.w3schools.com/html/mov_bbb.mp4';
+      console.log(`[TTS/MiniMax] MOCK mode for lesson "${lesson.title}" — writing local silent placeholder (not real TTS).`);
+      const fileName = `audio-_tts_mock-${courseId}-${lesson.id}.mp3`;
+      writeSilentMockMp3(path.join(audioDir, fileName));
+      lessonMediaUrl = `/audio/${fileName}`;
+      await updateCourseProgress(
+        courseId,
+        Math.round(80 + ((i + 1) / allLessons.length) * 10),
+        `MOCK-TTS (kein MiniMax-Key) Lektion ${i + 1}/${allLessons.length}`
+      );
     } else if (!isMockElevenLabs) {
       // ── ElevenLabs TTS ───────────────────────────────────────────────────────
       console.log(`[TTS] Generating ElevenLabs audio for lesson ${i + 1}/${allLessons.length}: "${lesson.title}" using voice ID ${currentElevenLabsVoiceId}...`);
@@ -286,12 +300,19 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
         fs.writeFileSync(path.join(audioDir, fileName), Buffer.from(arrayBuf));
         lessonMediaUrl = `/audio/${fileName}`;
       } catch (err: any) {
-        console.error(`[TTS] ElevenLabs call failed for lesson "${lesson.title}": ${err.message}. Using fallback mock audio.`);
-        lessonMediaUrl = 'https://www.w3schools.com/html/mov_bbb.mp4';
+        console.error(`[TTS] ElevenLabs call failed for lesson "${lesson.title}": ${err.message}.`);
+        throw new Error(`ElevenLabs TTS failed for lesson "${lesson.title}": ${err.message}`);
       }
     } else {
-      console.log(`[TTS] ElevenLabs running in MOCK mode for lesson "${lesson.title}". Using mock audio.`);
-      lessonMediaUrl = 'https://www.w3schools.com/html/mov_bbb.mp4';
+      console.log(`[TTS] MOCK mode for lesson "${lesson.title}" — writing local silent placeholder (not real TTS).`);
+      const fileName = `audio-_tts_mock-${courseId}-${lesson.id}.mp3`;
+      writeSilentMockMp3(path.join(audioDir, fileName));
+      lessonMediaUrl = `/audio/${fileName}`;
+      await updateCourseProgress(
+        courseId,
+        Math.round(80 + ((i + 1) / allLessons.length) * 10),
+        `MOCK-TTS (kein ElevenLabs-Key) Lektion ${i + 1}/${allLessons.length}`
+      );
     }
 
     // Update lesson media URL in the database
@@ -322,6 +343,12 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
   if (VIDEO_PROVIDER === 'heygen') {
     const isMockHeyGen = HEYGEN_API_URL.includes('localhost') || HEYGEN_API_KEY === 'mock-heygen-key';
     if (isMockHeyGen) {
+      let heygenAudio = overallMediaUrl;
+      if (!heygenAudio) {
+        const placeholderName = `audio-_tts_mock-heygen-${courseId}.mp3`;
+        writeSilentMockMp3(path.join(audioDir, placeholderName));
+        heygenAudio = `/audio/${placeholderName}`;
+      }
       await fetch(`${HEYGEN_API_URL}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -329,11 +356,14 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
           videoId,
           courseId,
           script: firstLessonScript,
-          audioUrl: overallMediaUrl || 'https://www.w3schools.com/html/mov_bbb.mp4',
+          audioUrl: heygenAudio,
           webhookUrl: WEBHOOK_URL,
         }),
       });
     } else {
+      if (!overallMediaUrl || overallMediaUrl.includes('_tts_mock') || overallMediaUrl.includes('w3schools')) {
+        throw new Error('HeyGen requires real per-lesson TTS audio. Configure ElevenLabs/MiniMax keys first.');
+      }
       const response = await fetch(`${HEYGEN_API_URL}/v2/video/generate`, {
         method: 'POST',
         headers: {
@@ -343,7 +373,7 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
         body: JSON.stringify({
           video_inputs: [{
             character: { type: 'avatar', avatar_id: 'Anna_marketing_professional' },
-            voice: { type: 'audio', audio_url: overallMediaUrl || 'https://www.w3schools.com/html/mov_bbb.mp4' },
+            voice: { type: 'audio', audio_url: overallMediaUrl },
           }],
           callback_url: WEBHOOK_URL,
           test: true,
@@ -356,6 +386,9 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
       }
     }
   } else {
+    if (!overallMediaUrl) {
+      throw new Error('GENERATE_VIDEO requires TTS audio first (overallMediaUrl missing).');
+    }
     await fetch(`${HEYGEN_API_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -363,7 +396,7 @@ export async function startVideoRendering(courseId: string, tenantId: string): P
         videoId,
         courseId,
         script: firstLessonScript,
-        audioUrl: overallMediaUrl || 'https://www.w3schools.com/html/mov_bbb.mp4',
+        audioUrl: overallMediaUrl,
         webhookUrl: WEBHOOK_URL,
       }),
     });

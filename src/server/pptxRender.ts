@@ -15,10 +15,11 @@ export interface RenderedSlideImage {
 }
 
 function findPdftoppm(): string {
+  const localAppData = process.env.LOCALAPPDATA || '';
   const candidates = [
     process.env.PDFTOPPM_PATH,
-    'C:\\Users\\tnickel\\AppData\\Local\\Programs\\MiKTeX\\miktex\\bin\\x64\\pdftoppm.exe',
-    'C:\\Users\\tnickel\\AppData\\Local\\Programs\\MiKTeX2\\miktex\\bin\\x64\\pdftoppm.exe',
+    localAppData ? path.join(localAppData, 'Programs', 'MiKTeX', 'miktex', 'bin', 'x64', 'pdftoppm.exe') : null,
+    localAppData ? path.join(localAppData, 'Programs', 'MiKTeX2', 'miktex', 'bin', 'x64', 'pdftoppm.exe') : null,
     'pdftoppm',
   ].filter(Boolean) as string[];
 

@@ -33,7 +33,7 @@ echo.
 
 :: 4. Start Python AI FastAPI Service
 echo [4/5] Starte Python AI-Service (in isolierter venv)...
-start "AI Service (FastAPI)" cmd /k "echo Starte AI-Service... && cd /d %~dp0src\ai_service && if not exist .venv (python -m venv .venv) && call .venv\Scripts\activate.bat && pip install -r requirements.txt && python main.py"
+start "AI Service (FastAPI)" cmd /k "echo Starte AI-Service... && cd /d %~dp0src\ai_service && if not exist .venv (python -m venv .venv) && call .venv\Scripts\activate.bat && .venv\Scripts\python.exe -m pip install -r requirements.txt && .venv\Scripts\python.exe main.py"
 
 :: 5. Start Temporal Worker & Express API Server
 echo [5/5] Starte Temporal Worker and Express Server...
@@ -44,8 +44,9 @@ echo ==================================================
 echo      SERVER ERFOLGREICH GESTARTET!
 echo ==================================================
 echo.
-echo Express Server laeuft auf: http://localhost:3010
-echo Temporal Web UI laeuft auf: http://localhost:8239
+echo Hauptportal / Studio:      http://localhost:3010
+echo Course Factory Inspector:  http://localhost:3010/inspector.html
+echo Temporal Web UI:           http://localhost:8239
 echo.
 echo Oeffne Webbrowser...
 start http://localhost:3010

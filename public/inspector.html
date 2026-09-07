@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Course Factory Inspector – Qualitätsprüfung & Freigabe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=2">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Marked and DOMPurify for markdown rendering and XSS protection -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+  <style>
+    .inspector-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+      padding: 20px;
+      max-width: 1700px;
+      margin: 0 auto;
+      min-height: calc(100vh - 80px);
+    }
+    .inspector-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .inspector-main {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .week-nav-bar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+    .week-pill {
+      padding: 8px 14px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .week-pill:hover, .week-pill.active {
+      background: var(--accent-primary);
+      color: #fff;
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+    }
+    .day-card {
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .day-card:hover, .day-card.active {
+      background: rgba(139, 92, 246, 0.1);
+      border-color: rgba(139, 92, 246, 0.4);
+    }
+    .ue-item {
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+    .ue-item:hover, .ue-item.active {
+      background: rgba(6, 182, 212, 0.12);
+      border-color: rgba(6, 182, 212, 0.4);
+      color: #fff;
+    }
+    .agent-tag {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .tag-theory { background: rgba(139, 92, 246, 0.2); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.3); }
+    .tag-practice { background: rgba(6, 182, 212, 0.2); color: #67e8f9; border: 1px solid rgba(6, 182, 212, 0.3); }
+    .tag-assessment { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+
+    /* Slide Stage Canvas */
+    .slide-canvas {
+      aspect-ratio: 16 / 9;
+      background: radial-gradient(ellipse at top right, rgba(6, 182, 212, 0.15), transparent 50%),
+                  radial-gradient(ellipse at bottom left, rgba(139, 92, 246, 0.18), transparent 50%),
+                  linear-gradient(160deg, #0d1322 0%, #070a14 100%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 36px 44px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    }
+    .slide-eyebrow {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent-secondary);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .slide-title-large {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 24px;
+      line-height: 1.2;
+    }
+    .slide-body-box {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .slide-bullet-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .slide-bullet-list li {
+      font-size: 1.3rem;
+      color: #e5e7eb;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .slide-bullet-list li::before {
+      content: "✦";
+      color: var(--accent-primary);
+      font-size: 1rem;
+    }
+    .visual-director-box {
+      background: rgba(255, 255, 255, 0.04);
+      border-left: 3px solid var(--accent-primary);
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      margin-top: 14px;
+    }
+    .speech-box {
+      background: rgba(139, 92, 246, 0.05);
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      border-radius: 10px;
+      padding: 20px;
+      line-height: 1.7;
+      font-size: 1rem;
+      color: #f1f5f9;
+    }
+    .code-editor-box {
+      background: #090d16;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .code-editor-header {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 8px 16px;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+    .code-pre {
+      padding: 16px;
+      margin: 0;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      color: #38bdf8;
+      line-height: 1.6;
+    }
+    .quiz-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .quiz-option {
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-top: 6px;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .quiz-option.correct {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #6ee7b7;
+      font-weight: 600;
+    }
+
+    /* Live Generation Cockpit Styles */
+    .live-cockpit {
+      margin: 0 20px 16px 20px;
+      padding: 18px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      border: 1px solid rgba(139, 92, 246, 0.3);
+      border-radius: 12px;
+      background: rgba(13, 19, 34, 0.75);
+      backdrop-filter: blur(12px);
+    }
+    .location-matrix {
+      display: grid;
+      grid-template-columns: 1.3fr 1.3fr 1.4fr;
+      gap: 12px;
+    }
+    @media (max-width: 1100px) {
+      .location-matrix {
+        grid-template-columns: 1fr;
+      }
+    }
+    .matrix-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .matrix-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-secondary);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .matrix-value {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .matrix-sub {
+      font-size: 0.78rem;
+      color: #94a3b8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .live-terminal {
+      background: #080c14;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      max-height: 140px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .terminal-line {
+      display: flex;
+      gap: 10px;
+      color: #cbd5e1;
+    }
+    .terminal-time {
+      color: #64748b;
+      flex-shrink: 0;
+    }
+    .terminal-msg-success { color: #34d399; font-weight: 500; }
+    .terminal-msg-info { color: #38bdf8; }
+    .terminal-msg-warning { color: #facc15; }
+    @keyframes pulse-glow {
+      0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(6, 182, 212, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+    }
+    .pulse-active {
+      animation: pulse-glow 2s infinite;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="glow-bg">
+    <div class="glow-1"></div>
+    <div class="glow-2"></div>
+  </div>
+
+  <!-- TOP HEADER -->
+  <header class="navbar glass-card" style="margin: 12px 20px; border-radius: 12px;">
+    <div class="nav-brand" style="gap: 12px;">
+      <a href="index.html" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 6px;">
+        <i data-lucide="arrow-left"></i> Zurück zum Hauptportal
+      </a>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <i data-lucide="layers" style="color: var(--accent-primary);"></i>
+        <h2 style="font-size: 1.1rem; margin: 0; font-weight: 700;">Course Factory Inspector</h2>
+      </div>
+      <span id="course-title-badge" class="badge" style="background: rgba(6, 182, 212, 0.15); color: var(--accent-secondary); border: 1px solid rgba(6, 182, 212, 0.3);">Lade Kurs...</span>
+    </div>
+
+    <div class="nav-links" style="gap: 12px;">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openInspectorPromptModal()" style="display: flex; align-items: center; gap: 6px; border-color: rgba(139, 92, 246, 0.4); color: #c084fc;" title="Prompt-Schablonen für alle Agenten anpassen">
+        <i data-lucide="file-code-2"></i> Prompt-Schablonen
+      </button>
+      <button id="import-course-btn" class="btn btn-primary btn-sm" onclick="importCourseToDb()" style="display: flex; align-items: center; gap: 6px;">
+        <i data-lucide="upload-cloud"></i> Geprüften Kurs in Lernplattform übernehmen
+      </button>
+    </div>
+  </header>
+
+  <!-- LIVE GENERATION COCKPIT & CONTROLS -->
+  <div class="live-cockpit">
+    <!-- Header Row: Status Badge & Action Buttons -->
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span id="progress-pulse-dot" style="width: 11px; height: 11px; border-radius: 50%; background: #94a3b8; display: inline-block;"></span>
+        <span style="font-weight: 700; font-size: 0.95rem; color: #fff;">Status:</span>
+        <span id="progress-status-badge" class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-secondary); font-size: 0.8rem; font-weight: 700;">BEREIT</span>
+        <span class="badge" style="background: rgba(139, 92, 246, 0.15); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.3); font-size: 0.75rem;">
+          <i data-lucide="shield-check" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> Auto-Resume aktiv
+        </span>
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button id="jump-current-btn" class="btn btn-secondary btn-sm" onclick="jumpToCurrentStep()" style="display: flex; align-items: center; gap: 6px;" title="Direkt zur aktuell bearbeiteten Einheit springen">
+          <i data-lucide="crosshair"></i> Zur aktuellen UE springen
+        </button>
+        <button id="start-gen-btn" class="btn btn-primary btn-sm" onclick="startGeneration()" style="display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="play"></i> Weiter generieren (Auto-Resume)
+        </button>
+        <button id="stop-gen-btn" class="btn btn-secondary btn-sm" onclick="stopGeneration()" style="display: flex; align-items: center; gap: 6px; color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">
+          <i data-lucide="pause"></i> Anhalten (Pause)
+        </button>
+      </div>
+    </div>
+
+    <!-- Course Duration & LLM Configuration Bar -->
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 10px 14px; border-radius: 8px;">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <!-- Duration Select -->
+        <label for="duration-select" style="font-size: 0.85rem; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="calendar" style="width: 14px; height: 14px; color: var(--accent-secondary);"></i>
+          Kursdauer:
+        </label>
+        <select id="duration-select" onchange="onDurationChange()" style="background: #0d1322; border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; font-family: inherit; outline: none; cursor: pointer;">
+          <option value="1slide">🎯 Minikurs (1 Folie – Schnelltest)</option>
+          <option value="1day">⚡ 1 Tag (Test-Modus – 8 UE)</option>
+          <option value="1week">📅 1 Woche (Kompaktkurs – 40 UE)</option>
+          <option value="2weeks">📅 2 Wochen (Crashkurs – 80 UE)</option>
+          <option value="4weeks">📅 4 Wochen / 1 Monat (Standardmodul – 160 UE)</option>
+          <option value="6weeks">📅 6 Wochen (Intensivkurs – 240 UE)</option>
+          <option value="8weeks" selected>🏆 8 Wochen / 2 Monate (Bootcamp – 320 UE)</option>
+          <option value="custom">⚙️ Benutzerdefiniert (Wochen eingeben)...</option>
+        </select>
+
+        <!-- Custom Weeks Input -->
+        <div id="custom-weeks-box" style="display: none; align-items: center; gap: 6px;">
+          <input type="number" id="custom-weeks-input" min="1" max="52" value="3" oninput="onDurationChange()" style="width: 65px; background: #0d1322; border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 5px 8px; border-radius: 6px; font-size: 0.85rem;">
+          <span style="font-size: 0.8rem; color: var(--text-secondary);">Wochen</span>
+        </div>
+
+        <!-- LLM Provider Select -->
+        <div style="display: flex; align-items: center; gap: 6px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.1);">
+          <label for="llm-provider-select" style="font-size: 0.85rem; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 5px;">
+            <i data-lucide="cpu" style="width: 14px; height: 14px; color: var(--accent-primary);"></i>
+            LLM Modell:
+          </label>
+          <select id="llm-provider-select" onchange="onLlmProviderChange()" style="background: #0d1322; border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; font-family: inherit; outline: none; cursor: pointer;">
+            <option value="glm" selected>🤖 GLM-5.3 (Z.ai PaaS / Coding Plan)</option>
+            <option value="gemini">♊ Gemini 2.5 Pro (OpenRouter)</option>
+          </select>
+          <span id="active-llm-badge" class="badge" style="background: rgba(139, 92, 246, 0.15); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.3); font-size: 0.75rem;">
+            GLM-5.3
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openInspectorPromptModal()" style="display: flex; align-items: center; gap: 5px; font-size: 0.78rem; padding: 4px 10px; border-color: rgba(139, 92, 246, 0.4); color: #c084fc;" title="Prompt-Schablonen für alle Agenten anpassen">
+            <i data-lucide="sliders-horizontal" style="width: 13px; height: 13px;"></i> Prompts anpassen
+          </button>
+        </div>
+
+        <span id="target-summary-badge" class="badge" style="background: rgba(6, 182, 212, 0.15); color: #67e8f9; border: 1px solid rgba(6, 182, 212, 0.3); font-size: 0.75rem;">
+          Ziel: 40 Tage | 320 UEs
+        </span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;" title="Schneller Test ohne LLM-API-Verbrauch">
+          <input type="checkbox" id="mock-mode-checkbox" style="cursor: pointer;">
+          <span>Offline Mock-Modus</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;" title="Bestehende Dateien überschreiben statt per Checkpoint fortzusetzen">
+          <input type="checkbox" id="force-regen-checkbox" style="cursor: pointer;">
+          <span>Neu generieren (Clean Start)</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Pause Info Alert (Hidden by default, shown when paused) -->
+    <div id="pause-alert-box" style="display: none; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.35); border-radius: 8px; padding: 10px 14px; align-items: center; gap: 10px;">
+      <i data-lucide="info" style="color: #facc15; width: 18px; height: 18px; flex-shrink: 0;"></i>
+      <span id="pause-alert-text" style="font-size: 0.85rem; color: #fef08a;">
+        Pipeline pausiert. Wenn du wieder auf 'Fortsetzen' klickst, macht der Generator exakt an der gleichen Einheit weiter.
+      </span>
+    </div>
+
+    <!-- Exact Location Matrix: Where is the generator right now? -->
+    <div class="location-matrix">
+      <!-- Card 1: Phase & Position -->
+      <div class="matrix-card">
+        <div class="matrix-label">
+          <i data-lucide="map-pin" style="width: 12px; height: 12px; color: var(--accent-secondary);"></i>
+          Aktuelle Arbeitsstelle
+        </div>
+        <div id="live-breadcrumb-val" class="matrix-value">Woche 1 ➔ Tag 1 ➔ UE 1</div>
+        <div id="live-phase-val" class="matrix-sub">Bereit zum Start</div>
+      </div>
+
+      <!-- Card 2: Active Agent -->
+      <div class="matrix-card">
+        <div class="matrix-label">
+          <i data-lucide="bot" style="width: 12px; height: 12px; color: var(--accent-primary);"></i>
+          Aktiver KI-Agent
+        </div>
+        <div id="live-agent-val" class="matrix-value">video_script_agent</div>
+        <div id="live-agent-sub" class="matrix-sub">Lerneinheit wird vorbereitet...</div>
+      </div>
+
+      <!-- Card 3: Granular Action / Step -->
+      <div class="matrix-card">
+        <div class="matrix-label">
+          <i data-lucide="activity" style="width: 12px; height: 12px; color: #34d399;"></i>
+          Aktuelle Tätigkeit
+        </div>
+        <div id="live-action-val" class="matrix-value" style="color: #67e8f9;">Bereit zum Start</div>
+        <div id="live-action-sub" class="matrix-sub">Klicke auf Start, um zu beginnen</div>
+      </div>
+    </div>
+    
+    <!-- Progress Bar & Detailed Statistics -->
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div style="width: 100%; height: 8px; background: rgba(255, 255, 255, 0.05); border-radius: 4px; overflow: hidden;">
+        <div id="progress-bar-fill" style="width: 0%; height: 100%; background: var(--gradient-accent); transition: width 0.4s ease; border-radius: 4px;"></div>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: var(--text-secondary);">
+        <span id="progress-counts">0 von 320 UEs generiert</span>
+        <span id="progress-pct" style="font-weight: 700; color: #fff;">0.0 %</span>
+      </div>
+    </div>
+
+    <!-- Live Log Console Toggle & Content -->
+    <div style="border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); font-weight: 600;">
+          <i data-lucide="terminal" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> Live-Ereignisprotokoll
+        </span>
+        <button id="toggle-terminal-btn" class="btn btn-secondary btn-sm" onclick="toggleTerminal()" style="padding: 2px 8px; font-size: 0.7rem;">
+          Protokoll ausblenden
+        </button>
+      </div>
+      <div id="live-terminal-box" class="live-terminal">
+        <div id="live-terminal-content">
+          <div class="terminal-line"><span class="terminal-time">[Start]</span> <span>Bereit zum Start. Auto-Resume ist aktiviert.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN INSPECTOR LAYOUT -->
+  <div class="inspector-layout">
+    
+    <!-- LEFT SIDEBAR: WEEKS, DAYS & UNITS -->
+    <aside class="glass-card inspector-sidebar">
+      <div>
+        <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 8px;">1. Woche wählen</h4>
+        <div id="week-nav" class="week-nav-bar">
+          <!-- Weeks 1..8 injected here -->
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin: 0;">2. Tag wählen</h4>
+          <span id="week-title-sub" style="font-size: 0.75rem; color: var(--accent-secondary);">Woche 1</span>
+        </div>
+        <div id="days-list" style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- Days 1..5 of selected week injected here -->
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin: 0;">3. Einheiten (8 UE à 45m)</h4>
+          <span id="day-counter-sub" style="font-size: 0.75rem; color: var(--accent-primary);">Tag 1</span>
+        </div>
+        <div id="units-list" style="display: flex; flex-direction: column; gap: 6px;">
+          <!-- 8 Units injected here -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- RIGHT MAIN: PREVIEW CANVAS & ARTIFACTS -->
+    <main class="inspector-main">
+      
+      <!-- UE Header Bar -->
+      <div class="glass-card" style="padding: 16px 24px; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+            <span id="ue-type-badge" class="agent-tag tag-theory">Theorie</span>
+            <span id="ue-target-agent-badge" style="font-size: 0.8rem; color: var(--text-secondary);">video_script_agent</span>
+          </div>
+          <h2 id="ue-main-title" style="margin: 0; font-size: 1.4rem; color: #fff;">Lade Einheit...</h2>
+          <p id="ue-objective" style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--text-secondary);">Lernziel...</p>
+        </div>
+
+        <div id="slide-nav-controls" style="display: flex; align-items: center; gap: 8px;">
+          <button id="prev-slide-btn" class="btn btn-secondary btn-sm" onclick="changeSlide(-1)">
+            <i data-lucide="chevron-left"></i> Vorherige Folie
+          </button>
+          <span id="slide-index-display" style="font-size: 0.85rem; font-weight: 600; color: #fff; min-width: 90px; text-align: center;">Folie 1 / 4</span>
+          <button id="next-slide-btn" class="btn btn-secondary btn-sm" onclick="changeSlide(1)">
+            Nächste Folie <i data-lucide="chevron-right"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- VIEW A: THEORY (SLIDES & ELEVENLABS SCRIPT) -->
+      <div id="view-theory" class="view-section">
+        <!-- 1. Slide Stage -->
+        <div class="slide-canvas">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div class="slide-eyebrow" id="stage-eyebrow">Präsentationsfolie</div>
+              <span id="stage-layout-badge" class="badge" style="background: rgba(139, 92, 246, 0.2); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.4);">Title_Slide</span>
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); font-family: monospace;" id="stage-slide-number">#1</div>
+          </div>
+
+          <div class="slide-body-box">
+            <h1 class="slide-title-large" id="stage-title">Folientitel</h1>
+            <ul class="slide-bullet-list" id="stage-bullets">
+              <!-- Bullets or Code Snippet -->
+            </ul>
+          </div>
+
+          <div class="visual-director-box" id="stage-visual-description">
+            <strong>🎨 Anweisung für Folien-Designer / Grafik-Engine:</strong>
+            <span id="stage-visual-text">Minimalistischer Titelscreen mit neonblauer Typografie</span>
+          </div>
+        </div>
+
+        <!-- 2. ElevenLabs Teleprompter Audio Script -->
+        <div class="glass-card" style="padding: 20px; margin-top: 16px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <i data-lucide="mic" style="color: var(--accent-primary);"></i>
+              <h3 style="margin: 0; font-size: 1.05rem;">ElevenLabs Sprechertext (Synchron zu Folie <span id="speech-slide-num">1</span>)</h3>
+            </div>
+            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 0.75rem;">Natürlicher Trainer-Ton</span>
+          </div>
+
+          <div id="speech-script-content" class="speech-box">
+            Lade Sprechertext...
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW B: PRACTICE (CODING EXERCISE & REPO FILES) -->
+      <div id="view-practice" class="view-section hidden">
+        <div class="glass-card" style="padding: 24px;">
+          <h3 style="display: flex; align-items: center; gap: 8px; margin-top: 0;">
+            <i data-lucide="code-2" style="color: var(--accent-secondary);"></i>
+            Praxis-Aufgabenstellung für Teilnehmer
+          </h3>
+          <div id="practice-instructions" style="line-height: 1.6; color: #e2e8f0;"></div>
+
+          <div style="margin-top: 24px;">
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+              <button id="tab-boilerplate" class="btn btn-secondary btn-sm active" onclick="switchCodeTab('boilerplate')">
+                <i data-lucide="file-code"></i> Starter-Code (Boilerplate mit # TODO)
+              </button>
+              <button id="tab-solution" class="btn btn-secondary btn-sm" onclick="switchCodeTab('solution')">
+                <i data-lucide="check-circle"></i> Musterlösung (Solution)
+              </button>
+            </div>
+
+            <div class="code-editor-box">
+              <div class="code-editor-header">
+                <span id="code-file-name">main.py</span>
+                <span id="code-tab-indicator" style="color: var(--accent-secondary);">Starter-Code</span>
+              </div>
+              <pre class="code-pre"><code id="practice-code-display"># Lade Code...</code></pre>
+            </div>
+          </div>
+
+          <div style="margin-top: 20px;">
+            <h4 style="font-size: 0.95rem; color: #fff; margin-bottom: 8px;">Validation & Bewertungskriterien:</h4>
+            <ul id="validation-criteria-list" style="padding-left: 20px; color: var(--text-secondary); line-height: 1.6;">
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW C: ASSESSMENT (10 MULTIPLE CHOICE QUESTIONS) -->
+      <div id="view-assessment" class="view-section hidden">
+        <div class="glass-card" style="padding: 24px;">
+          <h3 style="display: flex; align-items: center; gap: 8px; margin-top: 0; margin-bottom: 16px;">
+            <i data-lucide="help-circle" style="color: var(--accent-success);"></i>
+            10 Didaktische Kontrollfragen mit Erklärung
+          </h3>
+          <div id="quiz-questions-container">
+            <!-- 10 Questions injected here -->
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- SCRIPT CONTROLLER -->
+  <script>
+    let state = {
+      overview: null,
+      selectedWeek: 1,
+      selectedDay: 1,
+      selectedUe: 1,
+      currentDayPlan: null,
+      currentUeData: null,
+      currentSlideIdx: 0,
+      currentCodeTab: 'boilerplate'
+    };
+
+    function getAuthHeaders(extra = {}) {
+      // Token lives in sessionStorage (set by the main app's login);
+      // localStorage is only a legacy fallback.
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+      return {
+        ...extra,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      };
+    }
+
+    async function init() {
+      try {
+        const resp = await fetch('/api/course-factory/overview', {
+          headers: getAuthHeaders()
+        });
+        if (resp.status === 401 || resp.status === 403) {
+          alert('Admin-Berechtigung erforderlich. Bitte melde dich zuerst als Admin an.');
+          window.location.href = 'index.html';
+          return;
+        }
+        const data = await resp.json();
+        
+        if (!data.exists) {
+          alert('Noch kein Kurs im Dateisystem vorhanden. Starte bitte den Orchestrator.');
+          return;
+        }
+
+        state.overview = data;
+        document.getElementById('course-title-badge').textContent = data.curriculum.course_title;
+
+        renderWeekNav();
+        selectWeek(1);
+      } catch (err) {
+        console.error('Failed to load overview:', err);
+      }
+    }
+
+    function renderWeekNav() {
+      const container = document.getElementById('week-nav');
+      container.innerHTML = '';
+      const weeks = state.overview.curriculum.weeks || [];
+      weeks.forEach((w) => {
+        const btn = document.createElement('button');
+        btn.className = `week-pill ${w.week_number === state.selectedWeek ? 'active' : ''}`;
+        btn.textContent = `Woche ${w.week_number}`;
+        btn.onclick = () => selectWeek(w.week_number);
+        container.appendChild(btn);
+      });
+    }
+
+    function selectWeek(weekNum) {
+      state.selectedWeek = weekNum;
+      document.querySelectorAll('.week-pill').forEach((el, idx) => {
+        el.classList.toggle('active', idx + 1 === weekNum);
+      });
+
+      const weekObj = state.overview.curriculum.weeks.find(w => w.week_number === weekNum);
+      document.getElementById('week-title-sub').textContent = weekObj ? weekObj.week_theme.substring(0, 30) + '...' : `Woche ${weekNum}`;
+
+      // Render Days
+      const daysContainer = document.getElementById('days-list');
+      daysContainer.innerHTML = '';
+      if (weekObj && weekObj.days) {
+        weekObj.days.forEach((d) => {
+          const card = document.createElement('div');
+          card.className = `day-card ${d.day_number === state.selectedDay ? 'active' : ''}`;
+          card.innerHTML = `
+            <div style="font-weight: 600; font-size: 0.9rem; color: #fff;">Tag ${d.day_number}</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px;">${d.day_theme.substring(0, 40)}...</div>
+            <div style="font-size: 0.7rem; color: var(--accent-secondary); margin-top: 4px;">
+              ${d.units_breakdown.theory_ue}T / ${d.units_breakdown.practice_ue}P / ${d.units_breakdown.assessment_ue}Q
+            </div>
+          `;
+          card.onclick = () => selectDay(d.day_number);
+          daysContainer.appendChild(card);
+        });
+
+        // Select first day of week
+        selectDay(weekObj.days[0].day_number);
+      }
+    }
+
+    async function selectDay(dayNum) {
+      state.selectedDay = dayNum;
+      document.querySelectorAll('.day-card').forEach(el => {
+        el.classList.toggle('active', el.textContent.includes(`Tag ${dayNum}`));
+      });
+      document.getElementById('day-counter-sub').textContent = `Tag ${dayNum}`;
+
+      // Fetch day plan
+      try {
+        const resp = await fetch(`/api/course-factory/day?week=${state.selectedWeek}&day=${dayNum}`, {
+          headers: getAuthHeaders()
+        });
+        if (!resp.ok) {
+          document.getElementById('units-list').innerHTML = '<div style="font-size: 0.8rem; color: #94a3b8; padding: 8px;">Tag noch nicht generiert.</div>';
+          return;
+        }
+        state.currentDayPlan = await resp.json();
+        renderUnitsList();
+        if (state.currentDayPlan.units && state.currentDayPlan.units.length > 0) {
+          selectUe(state.currentDayPlan.units[0].ue_number);
+        }
+      } catch (err) {
+        console.error('Failed to load day plan:', err);
+      }
+    }
+
+    function renderUnitsList() {
+      const container = document.getElementById('units-list');
+      container.innerHTML = '';
+      const p = state.lastProgress;
+
+      (state.currentDayPlan.units || []).forEach(u => {
+        const item = document.createElement('div');
+        const isActiveUe = u.ue_number === state.selectedUe;
+        item.className = `ue-item ${isActiveUe ? 'active' : ''}`;
+        
+        let tagClass = 'tag-theory';
+        let icon = 'video';
+        if (u.ue_type === 'practice') { tagClass = 'tag-practice'; icon = 'code'; }
+        if (u.ue_type === 'assessment') { tagClass = 'tag-assessment'; icon = 'help-circle'; }
+
+        // Determine real-time status badge
+        const isCurrentRunning = p && p.status === 'running' &&
+          p.current_week == state.selectedWeek &&
+          p.current_day == state.selectedDay &&
+          p.current_ue == u.ue_number;
+
+        const isPausedHere = p && p.status === 'paused' &&
+          p.paused_at &&
+          p.paused_at.week == state.selectedWeek &&
+          p.paused_at.day == state.selectedDay &&
+          p.paused_at.ue == u.ue_number;
+
+        let statusIconHtml = '';
+        if (isCurrentRunning) {
+          statusIconHtml = '<span class="badge pulse-active" style="background: rgba(6, 182, 212, 0.25); color: #38bdf8; font-size: 0.65rem; border: 1px solid #06b6d4; padding: 1px 6px;">⚡ Aktiv</span>';
+        } else if (isPausedHere) {
+          statusIconHtml = '<span class="badge" style="background: rgba(234, 179, 8, 0.25); color: #facc15; font-size: 0.65rem; border: 1px solid #eab308; padding: 1px 6px;">⏸ Pausiert</span>';
+        } else if (u.isGenerated) {
+          statusIconHtml = '<span style="color: #34d399; font-size: 0.85rem; font-weight: bold;" title="Fertig generiert">✓</span>';
+        } else {
+          statusIconHtml = '<span style="color: #64748b; font-size: 0.75rem;" title="Ausstehend">○</span>';
+        }
+
+        item.innerHTML = `
+          ${statusIconHtml}
+          <i data-lucide="${icon}" style="width: 14px; height: 14px; flex-shrink: 0;"></i>
+          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">UE ${u.ue_number}: ${u.ue_title}</span>
+          <span class="agent-tag ${tagClass}">${u.ue_type}</span>
+        `;
+        item.onclick = () => selectUe(u.ue_number);
+        container.appendChild(item);
+      });
+      if (window.lucide) lucide.createIcons();
+    }
+
+    async function selectUe(ueNum) {
+      state.selectedUe = ueNum;
+      state.currentSlideIdx = 0;
+
+      document.querySelectorAll('.ue-item').forEach(el => {
+        el.classList.toggle('active', el.textContent.includes(`UE ${ueNum}:`));
+      });
+
+      const unitObj = state.currentDayPlan.units.find(u => u.ue_number === ueNum);
+      if (!unitObj) return;
+
+      document.getElementById('ue-main-title').textContent = `UE ${unitObj.ue_number}: ${unitObj.ue_title}`;
+      document.getElementById('ue-objective').textContent = unitObj.learning_objective;
+      document.getElementById('ue-target-agent-badge').textContent = unitObj.target_agent;
+      
+      const typeBadge = document.getElementById('ue-type-badge');
+      typeBadge.textContent = unitObj.ue_type;
+      typeBadge.className = `agent-tag tag-${unitObj.ue_type}`;
+
+      // Fetch UE artifacts
+      try {
+        const resp = await fetch(`/api/course-factory/ue?week=${state.selectedWeek}&day=${state.selectedDay}&ue=${ueNum}`, {
+          headers: getAuthHeaders()
+        });
+        if (!resp.ok) return;
+        state.currentUeData = await resp.json();
+        renderUeContent(unitObj);
+      } catch (err) {
+        console.error('Failed to load UE artifacts:', err);
+      }
+    }
+
+    function renderUeContent(unitObj) {
+      const viewTheory = document.getElementById('view-theory');
+      const viewPractice = document.getElementById('view-practice');
+      const viewAssessment = document.getElementById('view-assessment');
+      const slideControls = document.getElementById('slide-nav-controls');
+
+      viewTheory.classList.add('hidden');
+      viewPractice.classList.add('hidden');
+      viewAssessment.classList.add('hidden');
+      slideControls.style.display = 'none';
+
+      if (unitObj.target_agent === 'video_script_agent') {
+        viewTheory.classList.remove('hidden');
+        slideControls.style.display = 'flex';
+        renderSlide();
+      } else if (unitObj.target_agent === 'coding_exercise_agent') {
+        viewPractice.classList.remove('hidden');
+        renderPractice();
+      } else if (unitObj.target_agent === 'quiz_agent') {
+        viewAssessment.classList.remove('hidden');
+        renderQuiz();
+      }
+    }
+
+    function renderSlide() {
+      const slides = state.currentUeData?.slides?.slides || [];
+      if (slides.length === 0) return;
+
+      const slide = slides[state.currentSlideIdx] || slides[0];
+      document.getElementById('slide-index-display').textContent = `Folie ${state.currentSlideIdx + 1} / ${slides.length}`;
+      document.getElementById('speech-slide-num').textContent = `${state.currentSlideIdx + 1}`;
+
+      document.getElementById('stage-layout-badge').textContent = slide.layout_type;
+      document.getElementById('stage-slide-number').textContent = `#${slide.slide_number}`;
+      document.getElementById('stage-title').textContent = slide.on_slide_text?.heading || 'Folientitel';
+      
+      const bulletsList = document.getElementById('stage-bullets');
+      bulletsList.innerHTML = '';
+      (slide.on_slide_text?.bullet_points_or_code || []).forEach(b => {
+        const li = document.createElement('li');
+        li.textContent = b;
+        bulletsList.appendChild(li);
+      });
+
+      document.getElementById('stage-visual-text').textContent = slide.visual_description || 'Keine Beschreibung';
+      document.getElementById('speech-script-content').textContent = slide.elevenlabs_script || 'Kein Skript vorhanden.';
+    }
+
+    function changeSlide(delta) {
+      const slides = state.currentUeData?.slides?.slides || [];
+      if (slides.length === 0) return;
+      state.currentSlideIdx = Math.max(0, Math.min(slides.length - 1, state.currentSlideIdx + delta));
+      renderSlide();
+    }
+
+    function renderPractice() {
+      const instructions = state.currentUeData?.instructions || 'Keine Aufgabenstellung vorhanden.';
+      const practiceContainer = document.getElementById('practice-instructions');
+      if (window.marked) {
+        const rawHtml = marked.parse(instructions);
+        practiceContainer.innerHTML = window.DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
+      } else {
+        practiceContainer.textContent = instructions;
+      }
+
+      switchCodeTab(state.currentCodeTab);
+
+      const criteriaList = document.getElementById('validation-criteria-list');
+      criteriaList.innerHTML = '';
+      (state.currentUeData?.validationCriteria || []).forEach(c => {
+        const li = document.createElement('li');
+        li.textContent = c;
+        criteriaList.appendChild(li);
+      });
+    }
+
+    function switchCodeTab(tab) {
+      state.currentCodeTab = tab;
+      const btnBoiler = document.getElementById('tab-boilerplate');
+      const btnSol = document.getElementById('tab-solution');
+      const indicator = document.getElementById('code-tab-indicator');
+      const display = document.getElementById('practice-code-display');
+
+      const fileMap = tab === 'boilerplate'
+        ? (state.currentUeData?.boilerplate || {})
+        : (state.currentUeData?.solution || {});
+      const entries = Object.entries(fileMap);
+
+      if (tab === 'boilerplate') {
+        btnBoiler.classList.add('active');
+        btnSol.classList.remove('active');
+        indicator.textContent = 'Starter-Code';
+        indicator.style.color = 'var(--accent-secondary)';
+      } else {
+        btnSol.classList.add('active');
+        btnBoiler.classList.remove('active');
+        indicator.textContent = 'Musterlösung';
+        indicator.style.color = '#10b981';
+      }
+
+      if (entries.length === 0) {
+        document.getElementById('code-file-name').textContent = '—';
+        display.textContent = `# Keine ${indicator.textContent}-Dateien gefunden`;
+      } else if (entries.length === 1) {
+        document.getElementById('code-file-name').textContent = entries[0][0];
+        display.textContent = entries[0][1];
+      } else {
+        document.getElementById('code-file-name').textContent = `${entries.length} Dateien`;
+        display.textContent = entries
+          .map(([fname, content]) => `// ==================== DATEI: ${fname} ====================\n\n${content}`)
+          .join('\n\n');
+      }
+    }
+
+    function renderQuiz() {
+      const questions = state.currentUeData?.quiz?.questions || [];
+      const container = document.getElementById('quiz-questions-container');
+      container.innerHTML = '';
+
+      if (questions.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary);">Keine Quizfragen gefunden.</p>';
+        return;
+      }
+
+      questions.forEach((q, idx) => {
+        const card = document.createElement('div');
+        card.className = 'quiz-card';
+        card.innerHTML = `
+          <div style="font-weight: 600; font-size: 0.95rem; color: #fff; margin-bottom: 8px;">
+            Frage ${idx + 1}: ${escapeHtml(q.question_text)}
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            ${renderQuizOption(q, 'A', q.options?.A)}
+            ${renderQuizOption(q, 'B', q.options?.B)}
+            ${renderQuizOption(q, 'C', q.options?.C)}
+            ${renderQuizOption(q, 'D', q.options?.D)}
+          </div>
+          <div style="margin-top: 10px; font-size: 0.8rem; color: #94a3b8; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px;">
+            <strong style="color: #6ee7b7;">Didaktische Erklärung:</strong> ${escapeHtml(q.explanation || '')}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderQuizOption(question, optKey, optText) {
+      if (!optText) return '';
+      const isCorrect = question.correct_option === optKey;
+      return `
+        <div class="quiz-option ${isCorrect ? 'correct' : ''}">
+          <span style="font-weight: 700; width: 18px;">${optKey}:</span>
+          <span>${escapeHtml(optText)}</span>
+          ${isCorrect ? '<i data-lucide="check" style="width: 14px; height: 14px; margin-left: auto; color: #10b981;"></i>' : ''}
+        </div>
+      `;
+    }
+
+    async function importCourseToDb() {
+      if (!confirm('Möchtest du das geprüfte Curriculum jetzt verbindlich in die PostgreSQL-Lernplattform übernehmen?')) {
+        return;
+      }
+
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+      try {
+        const resp = await fetch('/api/course-factory/import', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({})
+        });
+
+        const data = await resp.json();
+        if (resp.ok) {
+          alert('Erfolg: ' + data.message + '\nKurs-ID: ' + data.courseId);
+          window.location.href = 'index.html';
+        } else {
+          alert('Fehler beim Importieren: ' + (data.error || 'Unbekannt'));
+        }
+      } catch (err) {
+        alert('Netzwerkfehler: ' + err.message);
+      }
+    }
+
+    async function pollProgress() {
+      try {
+        const resp = await fetch('/api/course-factory/progress', {
+          headers: getAuthHeaders()
+        });
+        if (!resp.ok) return;
+        const p = await resp.json();
+        state.lastProgress = p;
+
+        const badge = document.getElementById('progress-status-badge');
+        const dot = document.getElementById('progress-pulse-dot');
+        const fill = document.getElementById('progress-bar-fill');
+        const counts = document.getElementById('progress-counts');
+        const pct = document.getElementById('progress-pct');
+        const startBtn = document.getElementById('start-gen-btn');
+        const stopBtn = document.getElementById('stop-gen-btn');
+        const pauseAlert = document.getElementById('pause-alert-box');
+
+        // Matrix elements
+        const breadcrumbVal = document.getElementById('live-breadcrumb-val');
+        const phaseVal = document.getElementById('live-phase-val');
+        const agentVal = document.getElementById('live-agent-val');
+        const agentSub = document.getElementById('live-agent-sub');
+        const actionVal = document.getElementById('live-action-val');
+        const actionSub = document.getElementById('live-action-sub');
+
+        const status = p.status || 'idle';
+        badge.textContent = status.toUpperCase();
+
+        if (status === 'running') {
+          badge.style.background = 'rgba(6, 182, 212, 0.2)';
+          badge.style.color = '#38bdf8';
+          badge.style.border = '1px solid rgba(6, 182, 212, 0.4)';
+          dot.style.background = '#06b6d4';
+          dot.style.boxShadow = '0 0 12px #06b6d4';
+          dot.className = 'pulse-active';
+          startBtn.disabled = true;
+          startBtn.style.opacity = '0.5';
+          stopBtn.disabled = false;
+          stopBtn.style.opacity = '1';
+          pauseAlert.style.display = 'none';
+        } else if (status === 'paused') {
+          badge.style.background = 'rgba(234, 179, 8, 0.2)';
+          badge.style.color = '#facc15';
+          badge.style.border = '1px solid rgba(234, 179, 8, 0.4)';
+          dot.style.background = '#eab308';
+          dot.style.boxShadow = '0 0 10px #eab308';
+          dot.className = '';
+          startBtn.disabled = false;
+          startBtn.style.opacity = '1';
+          startBtn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+          startBtn.innerHTML = '<i data-lucide="play"></i> Fortsetzen (Resume)';
+          stopBtn.disabled = true;
+          stopBtn.style.opacity = '0.5';
+
+          // Show pause info alert
+          pauseAlert.style.display = 'flex';
+          const pausedAt = p.paused_at || { week: p.current_week, day: p.current_day, ue: p.current_ue, title: '' };
+          document.getElementById('pause-alert-text').textContent =
+            `Pipeline sicher pausiert vor Woche ${pausedAt.week}, Tag ${pausedAt.day}, UE ${pausedAt.ue}. Alle bisherigen Einheiten sind gespeichert. Klicke auf 'Fortsetzen (Resume)', um exakt an dieser Stelle ohne Datenverlust weiterzumachen.`;
+        } else if (status === 'completed') {
+          badge.style.background = 'rgba(16, 185, 129, 0.2)';
+          badge.style.color = '#34d399';
+          badge.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+          dot.style.background = '#10b981';
+          dot.style.boxShadow = '0 0 10px #10b981';
+          dot.className = '';
+          startBtn.disabled = false;
+          startBtn.style.opacity = '1';
+          startBtn.style.background = '';
+          startBtn.innerHTML = '<i data-lucide="refresh-cw"></i> Neu generieren';
+          stopBtn.disabled = true;
+          stopBtn.style.opacity = '0.5';
+          pauseAlert.style.display = 'none';
+        } else {
+          badge.style.background = 'rgba(255, 255, 255, 0.08)';
+          badge.style.color = '#94a3b8';
+          badge.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+          dot.style.background = '#94a3b8';
+          dot.style.boxShadow = 'none';
+          dot.className = '';
+          startBtn.disabled = false;
+          startBtn.style.opacity = '1';
+          startBtn.style.background = '';
+          startBtn.innerHTML = '<i data-lucide="play"></i> Weiter generieren (Auto-Resume)';
+          stopBtn.disabled = true;
+          stopBtn.style.opacity = '0.5';
+          pauseAlert.style.display = 'none';
+        }
+
+        // Live location updates
+        const weekNum = p.current_week || 1;
+        const dayNum = p.current_day || 1;
+        const ueNum = p.current_ue || 1;
+        const phaseName = p.current_phase === 'macro' ? 'Phase 1: Makro-Curriculum' : (p.current_phase === 'meso' ? 'Phase 2: Meso-Tagesplanung' : 'Phase 3: Mikro-Workflows');
+        
+        breadcrumbVal.textContent = `Woche ${weekNum} ➔ Tag ${dayNum} ➔ UE ${ueNum}`;
+        phaseVal.textContent = p.current_week_theme ? `${phaseName} – ${p.current_week_theme}` : phaseName;
+
+        const agentName = p.target_agent || 'Bereit';
+        let agentIcon = '🤖';
+        if (agentName.includes('video')) agentIcon = '🎬';
+        if (agentName.includes('coding')) agentIcon = '💻';
+        if (agentName.includes('quiz')) agentIcon = '❓';
+        agentVal.textContent = `${agentIcon} ${agentName}`;
+        agentSub.textContent = p.current_ue_title ? `UE ${ueNum}: ${p.current_ue_title}` : (p.current_day_theme || 'Bereit zum Start');
+
+        actionVal.textContent = p.agent_action || p.current_step || 'Bereit zum Start';
+        actionSub.textContent = p.current_step || 'Warte auf Benutzer-Interaktion';
+
+        fill.style.width = (p.percent || 0) + '%';
+        pct.textContent = (p.percent || 0) + ' %';
+        const skippedInfo = (p.skipped_ues && p.skipped_ues > 0) ? ` (${p.skipped_ues} via Checkpoint übersprungen)` : '';
+        counts.textContent = `${p.completed_ues || 0} von ${p.total_ues || 320} UEs generiert${skippedInfo}`;
+
+        // Live terminal logs
+        const terminal = document.getElementById('live-terminal-content');
+        if (terminal && p.recent_logs && p.recent_logs.length > 0) {
+          terminal.innerHTML = p.recent_logs.map(log => `
+            <div class="terminal-line">
+              <span class="terminal-time">[${log.time}]</span>
+              <span class="terminal-msg-${log.type || 'info'}">${escapeHtml(log.message)}</span>
+            </div>
+          `).join('');
+          terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        // Re-render sidebar unit items to update checkmarks / active indicator
+        if (state.currentDayPlan && state.currentDayPlan.day_number === state.selectedDay) {
+          renderUnitsList();
+        }
+
+        if (window.lucide) lucide.createIcons();
+      } catch (err) {
+        console.error('Error polling progress:', err);
+      }
+    }
+
+    function jumpToCurrentStep() {
+      if (!state.lastProgress) return;
+      const p = state.lastProgress;
+      const w = p.current_week || 1;
+      const d = p.current_day || 1;
+      const u = p.current_ue || 1;
+      selectWeek(w);
+      setTimeout(() => {
+        selectDay(d);
+        setTimeout(() => {
+          selectUe(u);
+        }, 250);
+      }, 200);
+    }
+
+    function toggleTerminal() {
+      const box = document.getElementById('live-terminal-box');
+      const btn = document.getElementById('toggle-terminal-btn');
+      if (box.style.display === 'none') {
+        box.style.display = 'flex';
+        btn.textContent = 'Protokoll ausblenden';
+      } else {
+        box.style.display = 'none';
+        btn.textContent = 'Protokoll einblenden';
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function onDurationChange() {
+      const select = document.getElementById('duration-select');
+      const customBox = document.getElementById('custom-weeks-box');
+      const badge = document.getElementById('target-summary-badge');
+      const val = select.value;
+
+      if (val === 'custom') {
+        customBox.style.display = 'flex';
+        const w = parseInt(document.getElementById('custom-weeks-input').value) || 1;
+        badge.textContent = `Ziel: ${w * 5} Tage | ${w * 40} UEs`;
+      } else {
+        customBox.style.display = 'none';
+        if (val === '1slide') badge.textContent = 'Ziel: 1 Folie | Minikurs';
+        else if (val === '1day') badge.textContent = 'Ziel: 1 Tag | 8 UEs';
+        else if (val === '1week') badge.textContent = 'Ziel: 5 Tage | 40 UEs';
+        else if (val === '2weeks') badge.textContent = 'Ziel: 10 Tage | 80 UEs';
+        else if (val === '4weeks') badge.textContent = 'Ziel: 20 Tage | 160 UEs';
+        else if (val === '6weeks') badge.textContent = 'Ziel: 30 Tage | 240 UEs';
+        else if (val === '8weeks') badge.textContent = 'Ziel: 40 Tage | 320 UEs';
+      }
+    }
+
+    function onLlmProviderChange() {
+      const select = document.getElementById('llm-provider-select');
+      const badge = document.getElementById('active-llm-badge');
+      const val = select ? select.value : 'glm';
+      localStorage.setItem('course_factory_llm_provider', val);
+      if (badge) {
+        if (val === 'glm') {
+          badge.textContent = 'GLM-5.3';
+          badge.style.color = '#c084fc';
+          badge.style.background = 'rgba(139, 92, 246, 0.15)';
+          badge.style.borderColor = 'rgba(139, 92, 246, 0.3)';
+        } else {
+          badge.textContent = 'Gemini 2.5 Pro';
+          badge.style.color = '#38bdf8';
+          badge.style.background = 'rgba(6, 182, 212, 0.15)';
+          badge.style.borderColor = 'rgba(6, 182, 212, 0.3)';
+        }
+      }
+    }
+
+    async function startGeneration() {
+      try {
+        const select = document.getElementById('duration-select');
+        const durationVal = select ? select.value : '8weeks';
+        const forceRegen = document.getElementById('force-regen-checkbox')?.checked || false;
+        const forceMock = document.getElementById('mock-mode-checkbox')?.checked || false;
+        const llmProvider = document.getElementById('llm-provider-select')?.value || 'glm';
+
+        let payload = {
+          forceMock: forceMock,
+          forceRegenerate: forceRegen,
+          llmProvider: llmProvider
+        };
+
+        if (durationVal === 'custom') {
+          const w = parseInt(document.getElementById('custom-weeks-input')?.value) || 1;
+          payload.maxWeeks = w;
+          payload.maxDays = w * 5;
+        } else {
+          payload.durationPreset = durationVal;
+        }
+
+        const resp = await fetch('/api/course-factory/start-generation', {
+          method: 'POST',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          pollProgress();
+        } else {
+          alert(data.error || 'Fehler beim Starten');
+        }
+      } catch (err) {
+        alert('Fehler: ' + err.message);
+      }
+    }
+
+    async function stopGeneration() {
+      try {
+        const resp = await fetch('/api/course-factory/stop-generation', {
+          method: 'POST',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' })
+        });
+        const data = await resp.json();
+        alert(data.message || 'Stop-Signal gesendet');
+        pollProgress();
+      } catch (err) {
+        alert('Fehler: ' + err.message);
+      }
+    }
+
+    // ==================== INSPECTOR PROMPT TEMPLATES MODAL ====================
+    let inspPrompts = [];
+    let activeInspPromptId = null;
+    let inspPreviewOpen = false;
+
+    function getAuthHeaders() {
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      return headers;
+    }
+
+    async function openInspectorPromptModal() {
+      const modal = document.getElementById('inspector-prompts-modal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.style.display = 'flex';
+      await loadInspectorPrompts();
+      lucide.createIcons();
+    }
+
+    function closeInspectorPromptModal() {
+      const modal = document.getElementById('inspector-prompts-modal');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+    }
+
+    async function loadInspectorPrompts() {
+      try {
+        const resp = await fetch('/api/admin/prompts', { headers: getAuthHeaders() });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        inspPrompts = await resp.json();
+        renderInspPromptsList();
+        if (inspPrompts.length > 0) {
+          selectInspPrompt(activeInspPromptId || inspPrompts[0].id);
+        }
+      } catch (err) {
+        console.error('Fehler beim Laden der Prompts:', err);
+        const list = document.getElementById('insp-prompts-list');
+        if (list) list.innerHTML = `<div style="color:#ef4444;font-size:0.8rem;padding:10px;">Fehler: ${err.message}</div>`;
+      }
+    }
+
+    function renderInspPromptsList() {
+      const container = document.getElementById('insp-prompts-list');
+      if (!container) return;
+      const q = (document.getElementById('insp-prompt-search')?.value || '').toLowerCase().trim();
+
+      const filtered = inspPrompts.filter(p => {
+        if (!q) return true;
+        return (p.title || '').toLowerCase().includes(q) ||
+               (p.description || '').toLowerCase().includes(q) ||
+               (p.target_agent || '').toLowerCase().includes(q);
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-secondary);font-size:0.8rem;padding:12px;text-align:center;">Keine Schablonen gefunden</div>';
+        return;
+      }
+
+      container.innerHTML = '';
+      filtered.forEach(prompt => {
+        const item = document.createElement('div');
+        const isActive = prompt.id === activeInspPromptId;
+        item.className = `prompt-list-item ${isActive ? 'active' : ''}`;
+        item.style.padding = '8px 10px';
+        item.style.borderRadius = '6px';
+        item.style.background = isActive ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.02)';
+        item.style.border = isActive ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.06)';
+        item.style.cursor = 'pointer';
+        item.onclick = () => selectInspPrompt(prompt.id);
+
+        const isCustom = prompt.is_customized;
+        item.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+            <span style="font-size:0.82rem;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${prompt.title}">${prompt.title}</span>
+            <span class="badge ${isCustom ? 'badge-customized' : 'badge-default'}" style="font-size:9px;padding:1px 5px;">${isCustom ? 'Individuell' : 'Standard'}</span>
+          </div>
+          <div style="font-size:0.7rem;color:var(--text-secondary);display:flex;justify-content:space-between;">
+            <span>${prompt.target_agent || prompt.category}</span>
+            <span>${(prompt.variables || []).length} Var.</span>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+      lucide.createIcons();
+    }
+
+    function onInspPromptSearch(val) {
+      renderInspPromptsList();
+    }
+
+    function selectInspPrompt(id) {
+      activeInspPromptId = id;
+      const prompt = inspPrompts.find(p => p.id === id);
+      if (!prompt) return;
+
+      renderInspPromptsList();
+
+      document.getElementById('insp-pe-title').textContent = prompt.title;
+      document.getElementById('insp-pe-desc').textContent = prompt.description || '';
+      
+      const badge = document.getElementById('insp-pe-status-badge');
+      if (prompt.is_customized) {
+        badge.textContent = 'Benutzerdefiniert angepasst';
+        badge.className = 'badge badge-customized';
+      } else {
+        badge.textContent = 'Standard-Vorlage';
+        badge.className = 'badge badge-default';
+      }
+
+      document.getElementById('insp-pe-sys').value = prompt.system_prompt || '';
+      document.getElementById('insp-pe-usr').value = prompt.user_prompt || '';
+
+      // Render variables
+      const varBox = document.getElementById('insp-pe-variables');
+      varBox.innerHTML = '';
+      (prompt.variables || []).forEach(v => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'prompt-var-badge';
+        btn.title = `${v.desc || v.name} – Klicken zum Einfügen`;
+        btn.innerHTML = `<i data-lucide="plus" style="width:10px;height:10px;"></i> {${v.name}}`;
+        btn.onclick = (e) => {
+          e.preventDefault();
+          insertInspVariable(v.name);
+        };
+        varBox.appendChild(btn);
+      });
+
+      lucide.createIcons();
+
+      if (inspPreviewOpen) {
+        refreshInspPreview();
+      }
+    }
+
+    function insertInspVariable(varName) {
+      const textarea = document.getElementById('insp-pe-usr');
+      if (!textarea) return;
+      const ph = `{${varName}}`;
+      const s = textarea.selectionStart;
+      const e = textarea.selectionEnd;
+      const val = textarea.value;
+      textarea.value = val.substring(0, s) + ph + val.substring(e);
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = s + ph.length;
+      showInspToast(`Variable {${varName}} eingefügt!`, false);
+    }
+
+    async function saveInspPrompt() {
+      if (!activeInspPromptId) return;
+      const sysVal = document.getElementById('insp-pe-sys').value;
+      const usrVal = document.getElementById('insp-pe-usr').value;
+
+      try {
+        const resp = await fetch(`/api/admin/prompts/${activeInspPromptId}`, {
+          method: 'PUT',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ system_prompt: sysVal, user_prompt: usrVal }),
+        });
+        const res = await resp.json();
+        if (resp.ok && res.success) {
+          const idx = inspPrompts.findIndex(p => p.id === activeInspPromptId);
+          if (idx !== -1) inspPrompts[idx] = res.prompt;
+          selectInspPrompt(activeInspPromptId);
+          showInspToast('Vorlage erfolgreich gespeichert!', false);
+        } else {
+          showInspToast('Fehler: ' + (res.error || 'Unbekannt'), true);
+        }
+      } catch (err) {
+        showInspToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    async function resetInspPrompt() {
+      if (!activeInspPromptId) return;
+      if (!confirm('Vorlage wirklich auf Werkseinstellung zurücksetzen?')) return;
+
+      try {
+        const resp = await fetch(`/api/admin/prompts/${activeInspPromptId}/reset`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+        });
+        const res = await resp.json();
+        if (resp.ok && res.success) {
+          const idx = inspPrompts.findIndex(p => p.id === activeInspPromptId);
+          if (idx !== -1) inspPrompts[idx] = res.prompt;
+          selectInspPrompt(activeInspPromptId);
+          showInspToast('Erfolgreich auf Standard zurückgesetzt!', false);
+        } else {
+          showInspToast('Fehler: ' + (res.error || 'Unbekannt'), true);
+        }
+      } catch (err) {
+        showInspToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function toggleInspPreview() {
+      const box = document.getElementById('insp-pe-preview-box');
+      if (!box) return;
+      inspPreviewOpen = !inspPreviewOpen;
+      if (inspPreviewOpen) {
+        box.classList.remove('hidden');
+        refreshInspPreview();
+      } else {
+        box.classList.add('hidden');
+      }
+    }
+
+    async function refreshInspPreview() {
+      if (!activeInspPromptId) return;
+      const textEl = document.getElementById('insp-pe-preview-text');
+      if (!textEl) return;
+      textEl.textContent = 'Rendere Test-Vorschau...';
+
+      const sysVal = document.getElementById('insp-pe-sys').value;
+      const usrVal = document.getElementById('insp-pe-usr').value;
+
+      try {
+        const resp = await fetch(`/api/admin/prompts/${activeInspPromptId}/preview`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ system_prompt: sysVal, user_prompt: usrVal }),
+        });
+        const res = await resp.json();
+        if (resp.ok && res.success) {
+          textEl.textContent = `=== [SYSTEM PROMPT] ===\n${res.rendered_system_prompt}\n\n=== [USER PROMPT] ===\n${res.rendered_user_prompt}`;
+        } else {
+          textEl.textContent = 'Fehler: ' + (res.error || 'Vorschau konnte nicht gerendert werden');
+        }
+      } catch (err) {
+        textEl.textContent = 'Fehler: ' + err.message;
+      }
+    }
+
+    function showInspToast(msg, isError) {
+      const toast = document.getElementById('insp-pe-toast');
+      if (!toast) return;
+      toast.textContent = msg;
+      toast.style.display = 'block';
+      toast.style.background = isError ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)';
+      toast.style.border = isError ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(16,185,129,0.4)';
+      toast.style.color = isError ? '#fca5a5' : '#6ee7b7';
+      setTimeout(() => { toast.style.display = 'none'; }, 3500);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const savedLlm = localStorage.getItem('course_factory_llm_provider');
+      if (savedLlm) {
+        const sel = document.getElementById('llm-provider-select');
+        if (sel) {
+          sel.value = savedLlm;
+          onLlmProviderChange();
+        }
+      }
+      init();
+      pollProgress();
+      setInterval(pollProgress, 1500);
+    });
+  </script>
+
+  <!-- PROMPT TEMPLATES INSPECTOR MODAL -->
+  <div id="inspector-prompts-modal" class="modal hidden" style="position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; padding: 20px;">
+    <div class="glass-card" style="width: 100%; max-width: 1180px; max-height: 90vh; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; background: #0c1220; border: 1px solid rgba(139, 92, 246, 0.35); box-shadow: 0 10px 40px rgba(0,0,0,0.6);">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02);">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <i data-lucide="file-code-2" style="width: 22px; height: 22px; color: var(--accent-primary);"></i>
+          <h3 style="margin: 0; font-size: 1.1rem; color: #fff;">Prompt-Vorlagen & didaktische Schablonen verwalten</h3>
+        </div>
+        <button type="button" class="btn btn-icon" onclick="closeInspectorPromptModal()" style="margin: 0; cursor: pointer;">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div style="display: grid; grid-template-columns: 310px 1fr; gap: 16px; padding: 16px; overflow-y: auto; flex: 1;">
+        <!-- Left List -->
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div class="input-wrapper" style="font-size: 0.85rem;">
+            <i data-lucide="search" style="width: 14px; height: 14px;"></i>
+            <input type="text" id="insp-prompt-search" placeholder="Prompt suchen..." oninput="onInspPromptSearch(this.value)">
+          </div>
+          <div id="insp-prompts-list" style="overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 520px; padding-right: 4px;">
+            <div style="padding: 12px; color: var(--text-secondary); text-align: center; font-size: 0.82rem;">Lade Prompts...</div>
+          </div>
+        </div>
+
+        <!-- Right Editor -->
+        <div style="display: flex; flex-direction: column; gap: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 10px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h4 id="insp-pe-title" style="margin: 0; font-size: 1rem; color: #fff;">Vorlage wählen</h4>
+                <span id="insp-pe-status-badge" class="badge badge-default" style="font-size: 0.7rem;">Standard</span>
+              </div>
+              <p id="insp-pe-desc" style="margin: 4px 0 0 0; font-size: 0.8rem; color: var(--text-secondary);"></p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-shrink: 0;">
+              <button type="button" class="btn btn-primary btn-sm" onclick="saveInspPrompt()" style="display: flex; align-items: center; gap: 5px;">
+                <i data-lucide="save"></i> Speichern
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="resetInspPrompt()" style="display: flex; align-items: center; gap: 5px;">
+                <i data-lucide="rotate-ccw"></i> Reset
+              </button>
+            </div>
+          </div>
+
+          <div id="insp-pe-toast" style="display: none; padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;"></div>
+
+          <!-- Variables list -->
+          <div>
+            <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Klickbare Variablen:</span>
+            <div id="insp-pe-variables" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;"></div>
+          </div>
+
+          <!-- System Prompt -->
+          <div>
+            <label style="font-size: 0.8rem; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 4px;">System-Prompt:</label>
+            <textarea id="insp-pe-sys" class="prompt-code-textarea" rows="4" style="width: 100%;"></textarea>
+          </div>
+
+          <!-- User Prompt -->
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label style="font-size: 0.8rem; font-weight: 600; color: #cbd5e1;">User-Prompt Schablone:</label>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="toggleInspPreview()" style="font-size: 11px; padding: 2px 6px;">
+                <i data-lucide="eye"></i> Vorschau
+              </button>
+            </div>
+            <textarea id="insp-pe-usr" class="prompt-code-textarea" rows="7" style="width: 100%;"></textarea>
+          </div>
+
+          <!-- Preview box -->
+          <div id="insp-pe-preview-box" class="hidden" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(6,182,212,0.3); border-radius: 8px; padding: 10px;">
+            <div style="font-size: 0.75rem; color: #67e8f9; font-weight: 600; margin-bottom: 4px;">Rendervorschau mit Test-Daten:</div>
+            <pre id="insp-pe-preview-text" style="font-family: monospace; font-size: 0.78rem; color: #cbd5e1; white-space: pre-wrap; max-height: 180px; overflow-y: auto; margin: 0;"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

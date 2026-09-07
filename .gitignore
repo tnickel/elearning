@@ -39,8 +39,11 @@ dist/
 *.p12
 *.pfx
 secrets.json
+secrets.local.json
+config/secrets.local.json
 secrets.yml
 secrets.yaml
+*.secret
 
 # ========================
 # Database
@@ -76,18 +79,23 @@ desktop.ini
 # ========================
 public/audio/
 public/slides/
+public/exports/
 
 # ========================
-# Drizzle / DB Migrations (generated)
+# Drizzle / DB Migrations (tracked in git)
 # ========================
-drizzle/*.sql
-drizzle/meta/
+# drizzle/*.sql and drizzle/meta/ are tracked in git
+
 
 # ========================
-# Temp / scratch files
+# Temp / scratch files & generated course outputs
 # ========================
 t.txt
 *.tmp
 *.bak
 tmp/
 temp/
+course_output/
+output/
+input/
+.zcode/

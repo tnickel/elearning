@@ -8,6 +8,19 @@ function reloadEnv() {
   dotenv.config({ override: true });
 }
 
+export function writeSilentMockMp3(absPath: string): void {
+  const frameSize = 417;
+  const frameCount = 76;
+  const frame = Buffer.alloc(frameSize, 0);
+  frame[0] = 0xff;
+  frame[1] = 0xfb;
+  frame[2] = 0x90;
+  frame[3] = 0x00;
+  const silent = Buffer.concat(Array(frameCount).fill(frame));
+  fs.mkdirSync(path.dirname(absPath), { recursive: true });
+  fs.writeFileSync(absPath, silent);
+}
+
 /**
  * Synthesize speech via ElevenLabs (or mock). Returns public URL path.
  */
@@ -24,11 +37,7 @@ export async function synthesizeSpeechToFile(opts: {
   fs.mkdirSync(path.dirname(abs), { recursive: true });
 
   if (isMock) {
-    // Tiny silent-ish placeholder: write empty file marker + use remote demo URL is awkward for <audio src>.
-    // Write a minimal valid-ish mp3 header is complex; copy a 1-byte stub and return path —
-    // frontend can still show player; for mock use w3schools only if no local file needed.
-    // Prefer writing the remote isn't possible. Create empty file and return path; browser may fail play.
-    fs.writeFileSync(abs, Buffer.alloc(0));
+    writeSilentMockMp3(abs);
     return `/${opts.outRelativePath.replace(/^\//, '')}`;
   }
 
@@ -55,40 +64,89 @@ export async function synthesizeSpeechToFile(opts: {
   return `/${opts.outRelativePath.replace(/^\//, '')}`;
 }
 
+export function isMockMediaUrl(url: string | null | undefined): boolean {
+  const u = String(url || '');
+  return (
+    !u ||
+    u.includes('w3schools.com') ||
+    u.includes('_tts_mock') ||
+    u.includes('mov_bbb')
+  );
+}
+
 export function computeSlidePipelineStatus(lessons: Array<{ contentPayload: any; videoUrl?: string | null }>) {
+  if (!lessons || lessons.length === 0) {
+    return {
+      slidesReady: false,
+      narrationsReady: false,
+      audioReady: false,
+      slideCount: 0,
+      narrationsDone: 0,
+      audioDone: 0,
+    };
+  }
+
   const slides: any[] = [];
+  let totalLessons = lessons.length;
+  let lessonsWithScript = 0;
+  let lessonsWithAudio = 0;
+  let totalSlides = 0;
+
   for (const les of lessons) {
     const payload = (les.contentPayload || {}) as any;
-    for (const s of payload.slides || []) {
+    const lessonSlides = payload.slides || [];
+    totalSlides += lessonSlides.length;
+    for (const s of lessonSlides) {
       slides.push({ ...s, _lessonVideoUrl: les.videoUrl });
+    }
+
+    const script = (payload.teleprompter_script || '').trim();
+    const slideNotes = lessonSlides.map((s: any) => (s.speaker_notes || '').trim()).filter(Boolean);
+    if (script.length > 10 || slideNotes.length > 0) {
+      lessonsWithScript++;
+    }
+
+    const hasLessonAudio = !!(les.videoUrl && String(les.videoUrl).trim() && !isMockMediaUrl(les.videoUrl));
+    const hasSlideAudio = lessonSlides.some(
+      (s: any) => s.audio_url && String(s.audio_url).trim() && !isMockMediaUrl(s.audio_url)
+    );
+    if (hasLessonAudio || hasSlideAudio) {
+      lessonsWithAudio++;
     }
   }
 
-  const hasSlides = slides.length > 0 && slides.every((s) => s.layout === 'image' ? !!s.image_url : true);
   const imageSlides = slides.filter((s) => s.layout === 'image' || s.image_url);
-  const relevant = imageSlides.length > 0 ? imageSlides : slides;
+  const isPptxImageDeck = imageSlides.length > 0 && imageSlides.length === slides.length;
 
-  const slidesReady = relevant.length > 0 && relevant.every((s) => !!(s.image_url || s.layout !== 'image'));
-  const narrationsReady =
-    relevant.length > 0 && relevant.every((s) => !!(s.speaker_notes && String(s.speaker_notes).trim()));
-  const audioReady =
-    relevant.length > 0 &&
-    relevant.every(
-      (s) => !!(s.audio_url && String(s.audio_url).trim()) || !!(s._lessonVideoUrl && String(s._lessonVideoUrl).trim())
+  if (isPptxImageDeck) {
+    const slidesReady = imageSlides.every((s) => !!s.image_url);
+    const narrationsReady = imageSlides.every((s) => !!(s.speaker_notes && String(s.speaker_notes).trim()));
+    const audioReady = imageSlides.every(
+      (s) => !!(s.audio_url && String(s.audio_url).trim() && !isMockMediaUrl(s.audio_url))
     );
+    return {
+      slidesReady,
+      narrationsReady,
+      audioReady,
+      slideCount: imageSlides.length,
+      narrationsDone: imageSlides.filter((s) => s.speaker_notes && String(s.speaker_notes).trim()).length,
+      audioDone: imageSlides.filter(
+        (s) => s.audio_url && String(s.audio_url).trim() && !isMockMediaUrl(s.audio_url)
+      ).length,
+    };
+  }
 
-  // For pptx image decks, require per-slide audio_url for green check (lesson-level videoUrl alone is weaker)
-  const pptxAudioReady =
-    imageSlides.length > 0
-      ? imageSlides.every((s) => !!(s.audio_url && String(s.audio_url).trim()))
-      : audioReady;
+  // Standard AI Wizard Course Pipeline
+  const slidesReady = totalLessons > 0 && totalSlides > 0;
+  const narrationsReady = totalLessons > 0 && lessonsWithScript === totalLessons;
+  const audioReady = totalLessons > 0 && lessonsWithAudio === totalLessons;
 
   return {
-    slidesReady: imageSlides.length > 0 ? imageSlides.every((s) => !!s.image_url) : hasSlides,
+    slidesReady,
     narrationsReady,
-    audioReady: pptxAudioReady,
-    slideCount: relevant.length,
-    narrationsDone: relevant.filter((s) => s.speaker_notes && String(s.speaker_notes).trim()).length,
-    audioDone: relevant.filter((s) => s.audio_url && String(s.audio_url).trim()).length,
+    audioReady,
+    slideCount: totalSlides || totalLessons,
+    narrationsDone: lessonsWithScript,
+    audioDone: lessonsWithAudio,
   };
 }

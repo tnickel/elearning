@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS "embeddings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"lesson_id" uuid NOT NULL,
 	"tenant_id" uuid NOT NULL,
-	"embedding" vector(1536) NOT NULL,
+	"embedding" vector(384) NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
